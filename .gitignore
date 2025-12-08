@@ -18,7 +18,34 @@ lerna-debug.log*
 .env.development
 .env.test
 .env.production
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
 
 # temp directory
 .temp
 .tmp
+
+# Testing
+coverage
+*.lcov
+.nyc_output
+
+# OS
+Thumbs.db
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
