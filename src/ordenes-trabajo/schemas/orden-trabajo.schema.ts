@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
+import { Trabajador, TrabajadorSchema } from './trabajador.schema';
 
 export type OrdenTrabajoDocument = OrdenTrabajo & Document;
 
@@ -16,14 +17,13 @@ export class OrdenTrabajo {
   })
   cotizacionId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Cliente', required: true, index: true })
+  @Prop({ type: Types.ObjectId, ref: 'Cliente', required: true })
   clienteId: Types.ObjectId;
 
   @Prop({
     type: Types.ObjectId,
     ref: 'UsuarioCliente',
     required: true,
-    index: true,
   })
   usuarioClienteId: Types.ObjectId;
 
@@ -69,6 +69,12 @@ export class OrdenTrabajo {
     default: [],
   })
   observaciones?: Array<{ texto: string; timestamp: Date }>;
+
+  @Prop({
+    type: [TrabajadorSchema],
+    default: [],
+  })
+  trabajadores?: Trabajador[];
 }
 
 export const OrdenTrabajoSchema = SchemaFactory.createForClass(OrdenTrabajo);

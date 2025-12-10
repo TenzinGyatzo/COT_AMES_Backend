@@ -5,7 +5,9 @@ import {
   IsString,
   IsDateString,
   IsEnum,
+  IsDate,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class UpdateCotizacionDto {
   @ApiPropertyOptional({
@@ -40,4 +42,31 @@ export class UpdateCotizacionDto {
   @IsOptional()
   @IsDateString()
   fechaVencimiento?: string;
+
+  @ApiPropertyOptional({
+    description: 'Fecha cuando se marcó como vigente',
+    example: '2024-01-15T10:00:00.000Z',
+  })
+  @IsOptional()
+  @IsDate()
+  @Type(() => Date)
+  fechaEstadoVigente?: Date;
+
+  @ApiPropertyOptional({
+    description: 'Fecha cuando se marcó como vencida',
+    example: '2024-01-20T10:00:00.000Z',
+  })
+  @IsOptional()
+  @IsDate()
+  @Type(() => Date)
+  fechaEstadoVencida?: Date;
+
+  @ApiPropertyOptional({
+    description: 'Fecha cuando se marcó como aceptada',
+    example: '2024-01-25T10:00:00.000Z',
+  })
+  @IsOptional()
+  @IsDate()
+  @Type(() => Date)
+  fechaEstadoAceptada?: Date;
 }

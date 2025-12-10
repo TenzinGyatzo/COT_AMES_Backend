@@ -26,6 +26,7 @@ import { UpdateMiPerfilDto } from './dto/update-mi-perfil.dto';
 import { FilterMisCotizacionesDto } from '../cotizaciones/dto/filter-mis-cotizaciones.dto';
 import { CreateCotizacionClienteDto } from '../cotizaciones/dto/create-cotizacion-cliente.dto';
 import { PaginatedCotizacionesResponseDto } from '../cotizaciones/dto/paginated-cotizaciones-response.dto';
+import { AceptarCotizacionDto } from '../cotizaciones/dto/aceptar-cotizacion.dto';
 
 @ApiTags('cliente-portal')
 @Controller('cliente-portal')
@@ -304,7 +305,7 @@ export class ClientePortalController {
   @ApiOperation({
     summary: 'Aceptar una cotización',
     description:
-      'Acepta una cotización vigente y genera automáticamente una orden de trabajo. La cotización debe estar en estado vigente y no vencida. Solo puede aceptar cotizaciones que pertenezcan al usuario autenticado.',
+      'Acepta una cotización vigente y genera automáticamente una orden de trabajo. La cotización debe estar en estado vigente y no vencida. Solo puede aceptar cotizaciones que pertenezcan al usuario autenticado. Requiere información de trabajadores.',
   })
   @ApiParam({ name: 'id', description: 'ID de la cotización a aceptar' })
   @ApiResponse({
@@ -314,17 +315,22 @@ export class ClientePortalController {
   @ApiResponse({
     status: 400,
     description:
-      'La cotización no puede ser aceptada (ya aceptada/rechazada o vencida)',
+      'La cotización no puede ser aceptada (ya aceptada/rechazada o vencida) o datos inválidos',
   })
   @ApiResponse({
     status: 404,
     description: 'Cotización no encontrada o no pertenece a su usuario',
   })
-  async aceptarCotizacion(@CurrentUser() user: any, @Param('id') id: string) {
+  async aceptarCotizacion(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() aceptarCotizacionDto: AceptarCotizacionDto,
+  ) {
     return this.cotizacionesService.aceptarCotizacion(
       id,
       user._id,
       user.clienteId,
+      aceptarCotizacionDto.trabajadores,
     );
   }
 

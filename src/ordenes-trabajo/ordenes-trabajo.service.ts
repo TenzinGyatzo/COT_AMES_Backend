@@ -20,6 +20,8 @@ import { FilterOrdenTrabajoDto } from './dto/filter-orden-trabajo.dto';
 import { PaginatedOrdenesTrabajoResponseDto } from './dto/paginated-ordenes-trabajo-response.dto';
 import { OrdenTrabajoListItemDto } from './dto/orden-trabajo-list-item.dto';
 import { OrdenTrabajoResponseDto } from './dto/orden-trabajo-response.dto';
+import { CreateTrabajadorDto } from './dto/create-trabajador.dto';
+import { UpdateTrabajadorDto } from './dto/update-trabajador.dto';
 import { ClientesService } from '../clientes/clientes.service';
 import { SedesService } from '../sedes/sedes.service';
 import { CotizacionesService } from '../cotizaciones/cotizaciones.service';
@@ -96,6 +98,7 @@ export class OrdenesTrabajoService {
   async createFromCotizacion(
     cotizacionId: string,
     usuarioClienteId: string,
+    trabajadores: any[],
   ): Promise<OrdenTrabajo> {
     // Validar que la cotización existe y está en estado 'vigente'
     const cotizacion = await this.cotizacionesService.findOne(cotizacionId);
@@ -164,6 +167,21 @@ export class OrdenesTrabajoService {
     // Generar folio
     const folio = await this.generateFolio(sedeIdStr);
 
+    // Convertir trabajadores DTOs a objetos Trabajador
+    const trabajadoresData = trabajadores.map((t) => ({
+      primerApellido: t.primerApellido,
+      segundoApellido: t.segundoApellido,
+      nombre: t.nombre,
+      fechaNacimiento: new Date(t.fechaNacimiento),
+      sexo: t.sexo,
+      escolaridad: t.escolaridad,
+      puesto: t.puesto,
+      fechaIngreso: t.fechaIngreso ? new Date(t.fechaIngreso) : undefined,
+      telefono: t.telefono,
+      estadoCivil: t.estadoCivil,
+      curp: t.curp,
+    }));
+
     // Crear nueva OrdenTrabajo con estado 'pendiente'
     const fechaCreacion = new Date();
     const nuevaOrden = new this.ordenTrabajoModel({
@@ -175,6 +193,7 @@ export class OrdenesTrabajoService {
       estado: 'pendiente',
       fechaCreacion,
       fechaEstadoPendiente: fechaCreacion,
+      trabajadores: trabajadoresData,
     });
 
     const ordenGuardada = await nuevaOrden.save();
@@ -733,8 +752,214 @@ export class OrdenesTrabajoService {
       fechaEstadoCompletada: orden.fechaEstadoCompletada,
       fechaEstadoCancelada: orden.fechaEstadoCancelada,
       observaciones: orden.observaciones,
+      trabajadores: orden.trabajadores || [],
       createdAt: ordenDoc.createdAt || ordenDoc.createdAt,
       updatedAt: ordenDoc.updatedAt || ordenDoc.updatedAt,
     };
+  }
+
+  async agregarTrabajador(
+    ordenTrabajoId: string,
+    usuarioClienteId: string,
+    trabajadorDto: CreateTrabajadorDto,
+  ): Promise<OrdenTrabajoResponseDto> {
+    // Validar que la orden existe y pertenece al usuario
+    const orden = await this.findOneByUsuarioCliente(
+      ordenTrabajoId,
+      usuarioClienteId,
+    );
+
+    // Obtener la cotización para validar cantidad máxima
+    const cotizacion = await this.cotizacionesService.findOne(
+      orden.cotizacionId,
+    );
+    const cantidadServicios = cotizacion.items.reduce(
+      (sum, item) => sum + item.cantidad,
+      0,
+    );
+
+    // Validar que no exceda la cantidad máxima
+    const cantidadActual = orden.trabajadores?.length || 0;
+    if (cantidadActual >= cantidadServicios) {
+      throw new BadRequestException(
+        `No se pueden agregar más trabajadores. Máximo permitido: ${cantidadServicios}`,
+      );
+    }
+
+    // Convertir DTO a objeto Trabajador
+    const nuevoTrabajador = {
+      primerApellido: trabajadorDto.primerApellido,
+      segundoApellido: trabajadorDto.segundoApellido,
+      nombre: trabajadorDto.nombre,
+      fechaNacimiento: new Date(trabajadorDto.fechaNacimiento),
+      sexo: trabajadorDto.sexo,
+      escolaridad: trabajadorDto.escolaridad,
+      puesto: trabajadorDto.puesto,
+      fechaIngreso: trabajadorDto.fechaIngreso
+        ? new Date(trabajadorDto.fechaIngreso)
+        : undefined,
+      telefono: trabajadorDto.telefono,
+      estadoCivil: trabajadorDto.estadoCivil,
+      curp: trabajadorDto.curp,
+    };
+
+    // Agregar trabajador al array
+    const ordenActualizada = await this.ordenTrabajoModel
+      .findByIdAndUpdate(
+        ordenTrabajoId,
+        {
+          $push: { trabajadores: nuevoTrabajador },
+        },
+        { new: true },
+      )
+      .populate('clienteId')
+      .populate('usuarioClienteId')
+      .populate('sedeId')
+      .populate('cotizacionId')
+      .exec();
+
+    if (!ordenActualizada) {
+      throw new NotFoundException(
+        `Orden de trabajo con ID ${ordenTrabajoId} no encontrada`,
+      );
+    }
+
+    return this.mapToResponseDto(ordenActualizada);
+  }
+
+  async actualizarTrabajador(
+    ordenTrabajoId: string,
+    usuarioClienteId: string,
+    trabajadorIndex: number,
+    trabajadorDto: UpdateTrabajadorDto,
+  ): Promise<OrdenTrabajoResponseDto> {
+    // Validar que la orden existe y pertenece al usuario
+    const orden = await this.findOneByUsuarioCliente(
+      ordenTrabajoId,
+      usuarioClienteId,
+    );
+
+    if (!orden.trabajadores || orden.trabajadores.length === 0) {
+      throw new BadRequestException('La orden de trabajo no tiene trabajadores');
+    }
+
+    if (trabajadorIndex < 0 || trabajadorIndex >= orden.trabajadores.length) {
+      throw new BadRequestException('Índice de trabajador inválido');
+    }
+
+    // Obtener trabajador actual
+    const trabajadorActual = orden.trabajadores[trabajadorIndex];
+
+    // Crear objeto actualizado
+    const trabajadorActualizado: any = {
+      primerApellido:
+        trabajadorDto.primerApellido ?? trabajadorActual.primerApellido,
+      segundoApellido:
+        trabajadorDto.segundoApellido ?? trabajadorActual.segundoApellido,
+      nombre: trabajadorDto.nombre ?? trabajadorActual.nombre,
+      fechaNacimiento: trabajadorDto.fechaNacimiento
+        ? new Date(trabajadorDto.fechaNacimiento)
+        : trabajadorActual.fechaNacimiento,
+      sexo: trabajadorDto.sexo ?? trabajadorActual.sexo,
+      escolaridad:
+        trabajadorDto.escolaridad ?? trabajadorActual.escolaridad,
+      puesto: trabajadorDto.puesto ?? trabajadorActual.puesto,
+      fechaIngreso: trabajadorDto.fechaIngreso
+        ? new Date(trabajadorDto.fechaIngreso)
+        : trabajadorActual.fechaIngreso,
+      telefono: trabajadorDto.telefono ?? trabajadorActual.telefono,
+      estadoCivil:
+        trabajadorDto.estadoCivil ?? trabajadorActual.estadoCivil,
+      curp: trabajadorDto.curp ?? trabajadorActual.curp,
+    };
+
+    // Actualizar trabajador en el array usando $set con notación de índice
+    const ordenActualizada = await this.ordenTrabajoModel
+      .findByIdAndUpdate(
+        ordenTrabajoId,
+        {
+          $set: {
+            [`trabajadores.${trabajadorIndex}`]: trabajadorActualizado,
+          },
+        },
+        { new: true },
+      )
+      .populate('clienteId')
+      .populate('usuarioClienteId')
+      .populate('sedeId')
+      .populate('cotizacionId')
+      .exec();
+
+    if (!ordenActualizada) {
+      throw new NotFoundException(
+        `Orden de trabajo con ID ${ordenTrabajoId} no encontrada`,
+      );
+    }
+
+    return this.mapToResponseDto(ordenActualizada);
+  }
+
+  async eliminarTrabajador(
+    ordenTrabajoId: string,
+    usuarioClienteId: string,
+    trabajadorIndex: number,
+  ): Promise<OrdenTrabajoResponseDto> {
+    // Validar que la orden existe y pertenece al usuario
+    const orden = await this.findOneByUsuarioCliente(
+      ordenTrabajoId,
+      usuarioClienteId,
+    );
+
+    if (!orden.trabajadores || orden.trabajadores.length === 0) {
+      throw new BadRequestException('La orden de trabajo no tiene trabajadores');
+    }
+
+    if (trabajadorIndex < 0 || trabajadorIndex >= orden.trabajadores.length) {
+      throw new BadRequestException('Índice de trabajador inválido');
+    }
+
+    // Obtener la cotización para validar cantidad mínima
+    const cotizacion = await this.cotizacionesService.findOne(
+      orden.cotizacionId,
+    );
+    const cantidadServicios = cotizacion.items.reduce(
+      (sum, item) => sum + item.cantidad,
+      0,
+    );
+
+    // Validar que no quede por debajo del mínimo (1 trabajador)
+    const cantidadActual = orden.trabajadores.length;
+    if (cantidadActual <= 1) {
+      throw new BadRequestException(
+        'Debe haber al menos un trabajador en la orden de trabajo',
+      );
+    }
+
+    // Obtener trabajadores actuales y eliminar el índice especificado
+    const trabajadoresActuales = [...orden.trabajadores];
+    trabajadoresActuales.splice(trabajadorIndex, 1);
+
+    // Actualizar la orden con el array sin el trabajador eliminado
+    const ordenActualizada = await this.ordenTrabajoModel
+      .findByIdAndUpdate(
+        ordenTrabajoId,
+        {
+          $set: { trabajadores: trabajadoresActuales },
+        },
+        { new: true },
+      )
+      .populate('clienteId')
+      .populate('usuarioClienteId')
+      .populate('sedeId')
+      .populate('cotizacionId')
+      .exec();
+
+    if (!ordenActualizada) {
+      throw new NotFoundException(
+        `Orden de trabajo con ID ${ordenTrabajoId} no encontrada`,
+      );
+    }
+
+    return this.mapToResponseDto(ordenActualizada);
   }
 }

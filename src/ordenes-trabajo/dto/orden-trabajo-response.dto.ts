@@ -261,4 +261,38 @@ export class OrdenTrabajoResponseDto {
     example: '2024-01-15T10:30:00.000Z',
   })
   updatedAt: Date;
+
+  @ApiPropertyOptional({
+    description: 'Array de trabajadores asociados a la orden de trabajo',
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        primerApellido: { type: 'string' },
+        segundoApellido: { type: 'string' },
+        nombre: { type: 'string' },
+        fechaNacimiento: { type: 'string', format: 'date-time' },
+        sexo: { type: 'string' },
+        escolaridad: { type: 'string' },
+        puesto: { type: 'string' },
+        fechaIngreso: { type: 'string', format: 'date-time' },
+        telefono: { type: 'string' },
+        estadoCivil: { type: 'string' },
+        curp: { type: 'string' },
+      },
+    },
+  })
+  trabajadores?: Array<{
+    primerApellido: string;
+    segundoApellido?: string;
+    nombre: string;
+    fechaNacimiento: Date;
+    sexo: string;
+    escolaridad: string;
+    puesto: string;
+    fechaIngreso?: Date;
+    telefono?: string;
+    estadoCivil: string;
+    curp?: string;
+  }>;
 }

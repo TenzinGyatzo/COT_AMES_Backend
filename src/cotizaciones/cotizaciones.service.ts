@@ -415,7 +415,6 @@ export class CotizacionesService {
       const fechaVencimiento = new Date(updateCotizacionDto.fechaVencimiento);
       const nuevoEstado = fechaVencimiento < new Date() ? 'vencida' : 'vigente';
       updateData.estado = nuevoEstado;
-      
       // Guardar timestamp del cambio de estado
       if (nuevoEstado === 'vigente') {
         updateData.fechaEstadoVigente = ahora;
@@ -869,14 +868,6 @@ export class CotizacionesService {
       const servicio = await this.serviciosService.findOne(itemDto.servicioId);
       const servicioDoc = servicio as any;
 
-      console.log('[COTIZACION CREATE FROM CLIENTE] Servicio:', {
-        id: servicioDoc._id || servicioDoc.id,
-        nombre: servicio.nombre,
-        descripcion: servicio.descripcion,
-        descripcionType: typeof servicio.descripcion,
-        descripcionLength: servicio.descripcion?.length,
-      });
-
       const subtotal = servicio.precioUnitario * itemDto.cantidad;
       total += subtotal;
 
@@ -1008,10 +999,21 @@ export class CotizacionesService {
     const estado = 'vigente';
 
     try {
+      // Extraer IDs correctamente (pueden estar poblados o ser ObjectIds)
+      const cotizacionDoc = cotizacionOriginal as any;
+      const clienteIdStr =
+        cotizacionDoc.clienteId?._id?.toString() ||
+        cotizacionDoc.clienteId?.toString() ||
+        cotizacionOriginal.clienteId?.toString();
+      const sedeIdStr =
+        cotizacionDoc.sedeId?._id?.toString() ||
+        cotizacionDoc.sedeId?.toString() ||
+        cotizacionOriginal.sedeId?.toString();
+
       const nuevaCotizacionData: any = {
         folio,
-        clienteId: cotizacionOriginal.clienteId,
-        sedeId: cotizacionOriginal.sedeId,
+        clienteId: new Types.ObjectId(clienteIdStr),
+        sedeId: new Types.ObjectId(sedeIdStr),
         emailContacto: cotizacionOriginal.emailContacto,
         items,
         total,
@@ -1021,20 +1023,23 @@ export class CotizacionesService {
         estado,
       };
 
-      // Preservar usuarioClienteId de la cotización original o usar el proporcionado
-      const cotizacionDoc = cotizacionOriginal as any;
-      const usuarioIdOriginal =
-        cotizacionDoc.usuarioClienteId?.toString() ||
-        cotizacionOriginal.usuarioClienteId?.toString();
-
+      // Usar el usuarioClienteId proporcionado (del usuario que está repitiendo)
+      // Si no se proporciona, preservar el de la cotización original
       if (usuarioClienteId) {
         nuevaCotizacionData.usuarioClienteId = new Types.ObjectId(
           usuarioClienteId,
         );
-      } else if (usuarioIdOriginal) {
-        nuevaCotizacionData.usuarioClienteId = new Types.ObjectId(
-          usuarioIdOriginal,
-        );
+      } else {
+        // Preservar usuarioClienteId de la cotización original si existe
+        const usuarioIdOriginal =
+          cotizacionDoc.usuarioClienteId?._id?.toString() ||
+          cotizacionDoc.usuarioClienteId?.toString() ||
+          cotizacionOriginal.usuarioClienteId?.toString();
+        if (usuarioIdOriginal) {
+          nuevaCotizacionData.usuarioClienteId = new Types.ObjectId(
+            usuarioIdOriginal,
+          );
+        }
       }
 
       const nuevaCotizacion = new this.cotizacionModel(nuevaCotizacionData);
@@ -1049,6 +1054,7 @@ export class CotizacionesService {
     cotizacionId: string,
     usuarioClienteId: string,
     clienteId: string,
+    trabajadores: any[],
   ): Promise<Cotizacion> {
     // Validar que la cotización existe y pertenece al usuario específico
     const cotizacion = await this.findOneByUsuarioClienteId(
@@ -1071,11 +1077,30 @@ export class CotizacionesService {
       );
     }
 
+    // Validar cantidad de trabajadores
+    const cantidadServicios = cotizacion.items.reduce(
+      (sum, item) => sum + item.cantidad,
+      0,
+    );
+
+    if (!trabajadores || trabajadores.length === 0) {
+      throw new BadRequestException(
+        'Debe agregar al menos un trabajador para aceptar la cotización',
+      );
+    }
+
+    if (trabajadores.length > cantidadServicios) {
+      throw new BadRequestException(
+        `La cantidad de trabajadores (${trabajadores.length}) no puede exceder la cantidad de servicios en la cotización (${cantidadServicios})`,
+      );
+    }
+
     // Llamar a ordenesTrabajoService.createFromCotizacion
     // Esto actualizará la cotización automáticamente
     await this.ordenesTrabajoService.createFromCotizacion(
       cotizacionId,
       usuarioClienteId,
+      trabajadores,
     );
 
     // Retornar cotización actualizada
