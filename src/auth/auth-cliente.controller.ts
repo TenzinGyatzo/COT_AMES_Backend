@@ -15,6 +15,10 @@ import { ClientesService } from '../clientes/clientes.service';
 import { RegisterClienteCompletoDto } from '../clientes/dto/register-cliente-completo.dto';
 import { LoginClienteDto } from '../clientes/dto/login-cliente.dto';
 import { UsuarioClienteResponseDto } from '../clientes/dto/usuario-cliente-response.dto';
+import { PasswordResetService } from './password-reset.service';
+import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
+import { ValidateResetTokenDto } from './dto/validate-reset-token.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @ApiTags('auth-cliente')
 @Controller('auth/cliente')
@@ -22,6 +26,7 @@ export class AuthClienteController {
   constructor(
     private authService: AuthService,
     private clientesService: ClientesService,
+    private passwordResetService: PasswordResetService,
   ) {}
 
   @Post('register')
@@ -212,5 +217,64 @@ export class AuthClienteController {
     }
 
     return this.authService.loginCliente(usuarioCliente);
+  }
+
+  @Post('password-reset/request')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Solicitar restablecimiento de contraseña (cliente)',
+    description:
+      'Envía un email con un enlace para restablecer la contraseña. Siempre retorna éxito para evitar enumeración de usuarios.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Si el email existe, se enviará un correo de recuperación',
+  })
+  async requestPasswordReset(@Body() dto: RequestPasswordResetDto) {
+    await this.passwordResetService.createResetTokenForCliente(dto.email);
+    return {
+      message:
+        'Si el email existe en nuestro sistema, recibirás un correo con instrucciones para restablecer tu contraseña',
+    };
+  }
+
+  @Post('password-reset/validate')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Validar token de restablecimiento (cliente)',
+    description: 'Verifica si un token de restablecimiento es válido',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Token validado',
+    schema: { type: 'object', properties: { valid: { type: 'boolean' } } },
+  })
+  async validateResetToken(@Body() dto: ValidateResetTokenDto) {
+    const valid = await this.passwordResetService.validateToken(
+      dto.email,
+      dto.token,
+      'cliente',
+    );
+    return { valid };
+  }
+
+  @Post('password-reset/reset')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Restablecer contraseña (cliente)',
+    description: 'Restablece la contraseña usando un token válido',
+  })
+  @ApiResponse({ status: 200, description: 'Contraseña restablecida' })
+  @ApiResponse({
+    status: 400,
+    description: 'Token inválido, expirado o ya utilizado',
+  })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    await this.passwordResetService.resetPasswordForCliente(
+      dto.email,
+      dto.token,
+      dto.newPassword,
+    );
+    return { message: 'Contraseña restablecida exitosamente' };
   }
 }

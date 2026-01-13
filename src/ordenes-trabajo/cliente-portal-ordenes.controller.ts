@@ -202,7 +202,8 @@ export class ClientePortalOrdenesController {
   })
   @ApiResponse({
     status: 400,
-    description: 'No se puede eliminar (debe haber al menos un trabajador) o índice inválido',
+    description:
+      'No se puede eliminar (debe haber al menos un trabajador) o índice inválido',
   })
   @ApiResponse({
     status: 404,

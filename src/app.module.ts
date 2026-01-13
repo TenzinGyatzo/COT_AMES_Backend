@@ -11,6 +11,7 @@ import { OrdenesTrabajoModule } from './ordenes-trabajo/ordenes-trabajo.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import { EmailsModule } from './emails/emails.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { AuthModule } from './auth/auth.module';
     DatabaseModule,
     UsersModule,
     AuthModule,
+    EmailsModule,
     SedesModule,
     ServiciosModule,
     ClientesModule,

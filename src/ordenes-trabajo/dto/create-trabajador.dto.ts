@@ -108,4 +108,3 @@ export class CreateTrabajadorDto {
   })
   curp?: string;
 }
-

@@ -245,7 +245,10 @@ export class OrdenTrabajoResponseDto {
       },
     },
     example: [
-      { texto: 'Se requiere atención especial', timestamp: '2024-01-15T10:30:00Z' },
+      {
+        texto: 'Se requiere atención especial',
+        timestamp: '2024-01-15T10:30:00Z',
+      },
     ],
   })
   observaciones?: Array<{ texto: string; timestamp: Date }>;

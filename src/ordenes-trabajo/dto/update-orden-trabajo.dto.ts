@@ -1,5 +1,11 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, IsEnum, IsArray, ValidateNested } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsEnum,
+  IsArray,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class ObservacionDto {
@@ -33,7 +39,10 @@ export class UpdateOrdenTrabajoDto {
     description: 'Array de observaciones de la orden de trabajo',
     type: [ObservacionDto],
     example: [
-      { texto: 'Se requiere atención especial', timestamp: '2024-01-15T10:30:00Z' },
+      {
+        texto: 'Se requiere atención especial',
+        timestamp: '2024-01-15T10:30:00Z',
+      },
     ],
   })
   @IsOptional()

@@ -506,4 +506,24 @@ export class ClientesService {
 
     return updatedUsuario;
   }
+
+  async updateUsuarioClientePassword(
+    id: string,
+    newPassword: string,
+  ): Promise<void> {
+    const usuarioCliente = await this.findUsuarioClienteById(id);
+
+    if (!usuarioCliente) {
+      throw new NotFoundException(`Usuario cliente con ID ${id} no encontrado`);
+    }
+
+    // Hashear la nueva contraseña
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(newPassword, saltRounds);
+
+    // Actualizar solo el passwordHash
+    await this.usuarioClienteModel
+      .findByIdAndUpdate(id, { passwordHash })
+      .exec();
+  }
 }

@@ -25,6 +25,7 @@ import { UpdateTrabajadorDto } from './dto/update-trabajador.dto';
 import { ClientesService } from '../clientes/clientes.service';
 import { SedesService } from '../sedes/sedes.service';
 import { CotizacionesService } from '../cotizaciones/cotizaciones.service';
+import { EmailsService } from '../emails/emails.service';
 
 @Injectable()
 export class OrdenesTrabajoService {
@@ -37,6 +38,7 @@ export class OrdenesTrabajoService {
     private sedesService: SedesService,
     @Inject(forwardRef(() => CotizacionesService))
     private cotizacionesService: CotizacionesService,
+    private emailsService: EmailsService,
   ) {}
 
   /**
@@ -221,6 +223,48 @@ export class OrdenesTrabajoService {
         },
       )
       .exec();
+
+    // Enviar email de notificación
+    try {
+      const cliente = await this.clientesService.findOne(clienteIdStr);
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+      await this.emailsService.sendCotizacionAceptadaYOrdenEmail(
+        {
+          nombreCliente: cliente.empresa,
+          nombreUsuario: usuarioCliente.nombre,
+          folioCotizacion: cotizacion.folio,
+          folioOrdenTrabajo: folio,
+          fechaAceptacion: fechaCreacion.toLocaleDateString('es-MX', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          }),
+          subTotalCotizacion: `$${cotizacion.total.toLocaleString('es-MX', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`,
+          ivaCotizacion: `$${(cotizacion.total * 0.16).toLocaleString('es-MX', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`,
+          totalCotizacion: `$${(cotizacion.total * 1.16).toLocaleString(
+            'es-MX',
+            {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            },
+          )}`,
+          cantidadTrabajadores: trabajadores.length,
+          linkMisCotizaciones: `${frontendUrl}/cliente/cotizaciones`,
+          linkMisOrdenes: `${frontendUrl}/cliente/ordenes`,
+        },
+        usuarioCliente.email,
+      );
+    } catch (emailError) {
+      // Solo loggear el error, no fallar la transacción
+      console.error('Error al enviar email de notificación:', emailError);
+    }
 
     return ordenGuardada;
   }
@@ -707,7 +751,8 @@ export class OrdenesTrabajoService {
                       item.servicioId?.toString() ||
                       item.servicioId,
                     nombreServicioSnapshot: item.nombreServicioSnapshot,
-                    descripcionServicioSnapshot: item.descripcionServicioSnapshot,
+                    descripcionServicioSnapshot:
+                      item.descripcionServicioSnapshot,
                     cantidad: item.cantidad,
                   }))
                 : undefined,
@@ -840,7 +885,9 @@ export class OrdenesTrabajoService {
     );
 
     if (!orden.trabajadores || orden.trabajadores.length === 0) {
-      throw new BadRequestException('La orden de trabajo no tiene trabajadores');
+      throw new BadRequestException(
+        'La orden de trabajo no tiene trabajadores',
+      );
     }
 
     if (trabajadorIndex < 0 || trabajadorIndex >= orden.trabajadores.length) {
@@ -861,15 +908,13 @@ export class OrdenesTrabajoService {
         ? new Date(trabajadorDto.fechaNacimiento)
         : trabajadorActual.fechaNacimiento,
       sexo: trabajadorDto.sexo ?? trabajadorActual.sexo,
-      escolaridad:
-        trabajadorDto.escolaridad ?? trabajadorActual.escolaridad,
+      escolaridad: trabajadorDto.escolaridad ?? trabajadorActual.escolaridad,
       puesto: trabajadorDto.puesto ?? trabajadorActual.puesto,
       fechaIngreso: trabajadorDto.fechaIngreso
         ? new Date(trabajadorDto.fechaIngreso)
         : trabajadorActual.fechaIngreso,
       telefono: trabajadorDto.telefono ?? trabajadorActual.telefono,
-      estadoCivil:
-        trabajadorDto.estadoCivil ?? trabajadorActual.estadoCivil,
+      estadoCivil: trabajadorDto.estadoCivil ?? trabajadorActual.estadoCivil,
       curp: trabajadorDto.curp ?? trabajadorActual.curp,
     };
 
@@ -911,7 +956,9 @@ export class OrdenesTrabajoService {
     );
 
     if (!orden.trabajadores || orden.trabajadores.length === 0) {
-      throw new BadRequestException('La orden de trabajo no tiene trabajadores');
+      throw new BadRequestException(
+        'La orden de trabajo no tiene trabajadores',
+      );
     }
 
     if (trabajadorIndex < 0 || trabajadorIndex >= orden.trabajadores.length) {

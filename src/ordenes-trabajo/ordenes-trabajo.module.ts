@@ -14,6 +14,7 @@ import {
 import { ClientesModule } from '../clientes/clientes.module';
 import { SedesModule } from '../sedes/sedes.module';
 import { CotizacionesModule } from '../cotizaciones/cotizaciones.module';
+import { EmailsModule } from '../emails/emails.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { CotizacionesModule } from '../cotizaciones/cotizaciones.module';
     forwardRef(() => ClientesModule),
     SedesModule,
     forwardRef(() => CotizacionesModule),
+    EmailsModule,
   ],
   controllers: [OrdenesTrabajoController, ClientePortalOrdenesController],
   providers: [OrdenesTrabajoService],

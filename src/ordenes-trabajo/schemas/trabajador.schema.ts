@@ -64,4 +64,3 @@ export class Trabajador {
 }
 
 export const TrabajadorSchema = SchemaFactory.createForClass(Trabajador);
-
