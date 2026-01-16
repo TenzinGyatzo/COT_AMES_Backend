@@ -28,8 +28,8 @@ export class Cotizacion {
   @Prop({ required: true, unique: true, index: true })
   folio: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Cliente', required: true })
-  clienteId: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'Cliente', required: false })
+  clienteId?: Types.ObjectId;
 
   @Prop({
     type: Types.ObjectId,
@@ -39,11 +39,21 @@ export class Cotizacion {
   })
   usuarioClienteId?: Types.ObjectId;
 
+  // Campos para cotizaciones de clientes no registrados (guest quotations)
+  @Prop()
+  nombreEmpresa?: string;
+
+  @Prop()
+  nombreContacto?: string;
+
+  @Prop()
+  telefonoContacto?: string;
+
   @Prop({ type: Types.ObjectId, ref: 'Sede', required: true })
   sedeId: Types.ObjectId;
 
-  @Prop({ required: true })
-  emailContacto: string;
+  @Prop({ required: false })
+  emailContacto?: string;
 
   @Prop({ type: [Object], required: true })
   items: ItemCotizacion[];
@@ -91,6 +101,12 @@ export class Cotizacion {
 
   @Prop()
   pdfUrl?: string;
+
+  @Prop({ index: true, unique: true, sparse: true })
+  magicToken?: string;
+
+  @Prop()
+  magicTokenExpiresAt?: Date;
 }
 
 export const CotizacionSchema = SchemaFactory.createForClass(Cotizacion);
@@ -107,3 +123,4 @@ CotizacionSchema.index({ 'items.servicioId': 1 });
 CotizacionSchema.index({ estado: 1, fechaVencimiento: 1 });
 CotizacionSchema.index({ sedeId: 1, estado: 1 });
 CotizacionSchema.index({ clienteId: 1, usuarioClienteId: 1 });
+CotizacionSchema.index({ magicToken: 1 }, { unique: true, sparse: true });

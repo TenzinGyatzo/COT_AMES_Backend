@@ -33,10 +33,10 @@ export class OrdenTrabajoListItemDto {
   empresa?: string;
 
   @ApiPropertyOptional({
-    description: 'Nombre del usuario cliente',
+    description: 'Nombre del solicitante',
     example: 'Juan Pérez',
   })
-  nombreUsuario?: string;
+  nombreSolicitante?: string;
 
   @ApiPropertyOptional({
     description: 'Ciudad de la sede',

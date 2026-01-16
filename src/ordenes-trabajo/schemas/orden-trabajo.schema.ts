@@ -17,15 +17,28 @@ export class OrdenTrabajo {
   })
   cotizacionId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Cliente', required: true })
+  @Prop({ type: Types.ObjectId, ref: 'Cliente', required: false })
   clienteId: Types.ObjectId;
 
   @Prop({
     type: Types.ObjectId,
     ref: 'UsuarioCliente',
-    required: true,
+    required: false,
   })
   usuarioClienteId: Types.ObjectId;
+
+  // Campos para clientes no registrados (guest)
+  @Prop()
+  nombreEmpresa?: string;
+
+  @Prop()
+  nombreContacto?: string;
+
+  @Prop()
+  emailContacto?: string;
+
+  @Prop()
+  telefonoContacto?: string;
 
   @Prop({ type: Types.ObjectId, ref: 'Sede', required: true })
   sedeId: Types.ObjectId;

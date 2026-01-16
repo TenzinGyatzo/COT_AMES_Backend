@@ -14,6 +14,8 @@ import { EmailService } from './services/email.service';
 import { PdfService } from './services/pdf.service';
 import { OrdenesTrabajoModule } from '../ordenes-trabajo/ordenes-trabajo.module';
 
+import { EmailsModule } from '../emails/emails.module';
+
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -23,6 +25,7 @@ import { OrdenesTrabajoModule } from '../ordenes-trabajo/ordenes-trabajo.module'
     forwardRef(() => ClientesModule),
     ServiciosModule,
     SedesModule,
+    EmailsModule,
     forwardRef(() => OrdenesTrabajoModule),
   ],
   controllers: [CotizacionesController],

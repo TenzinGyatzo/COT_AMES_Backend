@@ -12,6 +12,7 @@ import { MetricsModule } from './metrics/metrics.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { EmailsModule } from './emails/emails.module';
+import { ScheduleModule } from '@nestjs/schedule'; // Import ScheduleModule
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { EmailsModule } from './emails/emails.module';
       isGlobal: true,
       envFilePath: '.env',
     }),
+    ScheduleModule.forRoot(),
     DatabaseModule,
     UsersModule,
     AuthModule,

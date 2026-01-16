@@ -20,6 +20,7 @@ import {
 } from '@nestjs/swagger';
 import { CotizacionesService } from './cotizaciones.service';
 import { CreateCotizacionDto } from './dto/create-cotizacion.dto';
+import { CreateCotizacionAdminDto } from './dto/create-cotizacion-admin.dto';
 import { UpdateCotizacionDto } from './dto/update-cotizacion.dto';
 import { FilterCotizacionDto } from './dto/filter-cotizacion.dto';
 import { PaginatedCotizacionesResponseDto } from './dto/paginated-cotizaciones-response.dto';
@@ -27,6 +28,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/enums/roles.enum';
 import { Roles as RolesDecorator } from '../auth/decorators/roles.decorator';
+import { AceptarCotizacionDto } from './dto/aceptar-cotizacion.dto';
 
 @ApiTags('cotizaciones')
 @Controller('cotizaciones')
@@ -49,6 +51,30 @@ export class CotizacionesController {
   })
   create(@Body() createCotizacionDto: CreateCotizacionDto) {
     return this.cotizacionesService.create(createCotizacionDto);
+  }
+
+  @Post('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @RolesDecorator(Roles.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Crear una cotización para cliente no registrado',
+    description:
+      'Permite al administrador crear una cotización sin necesidad de que el cliente esté registrado en el sistema. Los datos del cliente se almacenan directamente en la cotización.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Cotización creada exitosamente',
+  })
+  @ApiResponse({ status: 400, description: 'Datos inválidos' })
+  @ApiResponse({
+    status: 404,
+    description: 'Sede o servicio no encontrado',
+  })
+  createAdminCotizacion(@Body() createCotizacionAdminDto: CreateCotizacionAdminDto) {
+    return this.cotizacionesService.createAdminCotizacion(
+      createCotizacionAdminDto,
+    );
   }
 
   @Get()
@@ -144,6 +170,55 @@ export class CotizacionesController {
     return this.cotizacionesService.update(id, updateCotizacionDto);
   }
 
+
+  @Patch(':id/admin/aceptar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @RolesDecorator(Roles.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Aceptar una cotización como administrador',
+    description:
+      'Permite al administrador aceptar una cotización. Genera una Orden de Trabajo pero NO envía correo electrónico al cliente.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la cotización' })
+  @ApiResponse({
+    status: 200,
+    description: 'Cotización aceptada exitosamente',
+  })
+  @ApiResponse({ status: 400, description: 'Estado inválido o datos faltantes' })
+  @ApiResponse({ status: 404, description: 'Cotización no encontrada' })
+  aceptarCotizacionAdmin(
+    @Param('id') id: string,
+    @Body() aceptarDto: AceptarCotizacionDto,
+  ) {
+    // Pasar enviarEmail = false explícitamente
+    return this.cotizacionesService.aceptarCotizacionAdmin(
+      id,
+      aceptarDto.trabajadores,
+      false,
+    );
+  }
+
+  @Patch(':id/admin/rechazar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @RolesDecorator(Roles.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Rechazar una cotización como administrador',
+    description:
+      'Permite al administrador rechazar una cotización. NO envía correo electrónico.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la cotización' })
+  @ApiResponse({
+    status: 200,
+    description: 'Cotización rechazada exitosamente',
+  })
+  @ApiResponse({ status: 400, description: 'Estado inválido' })
+  @ApiResponse({ status: 404, description: 'Cotización no encontrada' })
+  rechazarCotizacionAdmin(@Param('id') id: string) {
+    return this.cotizacionesService.rechazarCotizacionAdmin(id);
+  }
+
   @Patch(':id/marcar-vencida')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @RolesDecorator(Roles.ADMIN)
@@ -193,5 +268,40 @@ export class CotizacionesController {
       message: `Se marcaron ${count} cotización(es) como vencida(s)`,
       count,
     };
+  }
+
+  // --- ENDPOINTS PÚBLICOS (MAGIC LINK) ---
+
+  @Get('public/:token')
+  @ApiOperation({ summary: 'Obtener cotización mediante magic token (público)' })
+  @ApiParam({ name: 'token', description: 'Token de acceso seguro' })
+  @ApiResponse({ status: 200, description: 'Cotización encontrada' })
+  @ApiResponse({ status: 404, description: 'Token inválido o expirado' })
+  findOneByToken(@Param('token') token: string) {
+    return this.cotizacionesService.findOneByMagicToken(token);
+  }
+
+  @Patch('public/:token/aceptar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Aceptar cotización mediante magic token (público)' })
+  @ApiParam({ name: 'token', description: 'Token de acceso seguro' })
+  @ApiResponse({ status: 200, description: 'Cotización aceptada' })
+  aceptarByToken(
+    @Param('token') token: string,
+    @Body() aceptarDto: AceptarCotizacionDto,
+  ) {
+    return this.cotizacionesService.aceptarCotizacionByMagicToken(
+      token,
+      aceptarDto.trabajadores,
+    );
+  }
+
+  @Patch('public/:token/rechazar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Rechazar cotización mediante magic token (público)' })
+  @ApiParam({ name: 'token', description: 'Token de acceso seguro' })
+  @ApiResponse({ status: 200, description: 'Cotización rechazada' })
+  rechazarByToken(@Param('token') token: string) {
+    return this.cotizacionesService.rechazarCotizacionByMagicToken(token);
   }
 }

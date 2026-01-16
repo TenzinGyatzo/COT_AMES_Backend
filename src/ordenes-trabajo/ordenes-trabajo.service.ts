@@ -99,8 +99,9 @@ export class OrdenesTrabajoService {
 
   async createFromCotizacion(
     cotizacionId: string,
-    usuarioClienteId: string,
+    usuarioClienteId: string | null,
     trabajadores: any[],
+    enviarEmail: boolean = true,
   ): Promise<OrdenTrabajo> {
     // Validar que la cotización existe y está en estado 'vigente'
     const cotizacion = await this.cotizacionesService.findOne(cotizacionId);
@@ -118,31 +119,51 @@ export class OrdenesTrabajoService {
       );
     }
 
-    // Validar que el usuarioClienteId pertenece al clienteId de la cotización
-    const usuarioCliente =
-      await this.clientesService.findUsuarioClienteById(usuarioClienteId);
-
     const cotizacionDoc = cotizacion as any;
-    const usuarioClienteDoc = usuarioCliente as any;
-
-    // Extraer los IDs correctamente (pueden estar poblados o ser ObjectIds)
+    // Extraer ID del cliente de la cotización
     const cotizacionClienteId = this.extractId(
       cotizacionDoc.clienteId || cotizacion.clienteId,
     );
-    const usuarioClienteClienteId = this.extractId(
-      usuarioClienteDoc.clienteId || usuarioCliente.clienteId,
-    );
 
-    if (!cotizacionClienteId || !usuarioClienteClienteId) {
-      throw new BadRequestException(
-        'No se pudo obtener el clienteId de la cotización o del usuario cliente',
-      );
-    }
+    // Variables para IDs de cliente y usuario (pueden ser nulos para guest)
+    let clienteIdStr: string | null = null;
+    let usuarioClienteIdStr: string | null = null;
 
-    if (cotizacionClienteId !== usuarioClienteClienteId) {
-      throw new BadRequestException(
-        'El usuario cliente no pertenece al cliente de la cotización',
+    // Si hay usuarioClienteId (flujo cliente o admin con cliente registrado)
+    if (usuarioClienteId) {
+      // Validar que el usuarioClienteId pertenece al clienteId de la cotización
+      const usuarioCliente =
+        await this.clientesService.findUsuarioClienteById(usuarioClienteId);
+      const usuarioClienteDoc = usuarioCliente as any;
+      const usuarioClienteClienteId = this.extractId(
+        usuarioClienteDoc.clienteId || usuarioCliente.clienteId,
       );
+
+      if (!cotizacionClienteId || !usuarioClienteClienteId) {
+        throw new BadRequestException(
+          'No se pudo obtener el clienteId de la cotización o del usuario cliente',
+        );
+      }
+
+      if (cotizacionClienteId !== usuarioClienteClienteId) {
+        throw new BadRequestException(
+          'El usuario cliente no pertenece al cliente de la cotización',
+        );
+      }
+
+      clienteIdStr = cotizacionClienteId;
+      usuarioClienteIdStr = usuarioClienteId;
+    } else {
+      // Flujo guest o admin sin usuario específico
+      // Si la cotización tiene clienteId, usarlo (caso admin aceptando cotización de registrado)
+      if (cotizacionClienteId) {
+        clienteIdStr = cotizacionClienteId;
+        // Intentar obtener el usuarioClienteId de la cotización si existe
+        usuarioClienteIdStr = this.extractId(
+          cotizacionDoc.usuarioClienteId || cotizacion.usuarioClienteId,
+        );
+      }
+      // Si no tiene clienteId, es guest. clienteIdStr y usuarioClienteIdStr se quedan null
     }
 
     // Verificar que no exista ya una orden de trabajo para esta cotización
@@ -156,8 +177,7 @@ export class OrdenesTrabajoService {
       );
     }
 
-    // Obtener datos de la cotización (usar los IDs ya extraídos)
-    const clienteIdStr = cotizacionClienteId;
+    // Obtener sede ID
     const sedeIdStr = this.extractId(cotizacionDoc.sedeId || cotizacion.sedeId);
 
     if (!sedeIdStr) {
@@ -186,25 +206,37 @@ export class OrdenesTrabajoService {
 
     // Crear nueva OrdenTrabajo con estado 'pendiente'
     const fechaCreacion = new Date();
-    const nuevaOrden = new this.ordenTrabajoModel({
+    const nuevaOrdenData: any = {
       folio,
       cotizacionId: new Types.ObjectId(cotizacionId),
-      clienteId: new Types.ObjectId(clienteIdStr),
-      usuarioClienteId: new Types.ObjectId(usuarioClienteId),
       sedeId: new Types.ObjectId(sedeIdStr),
       estado: 'pendiente',
       fechaCreacion,
       fechaEstadoPendiente: fechaCreacion,
       trabajadores: trabajadoresData,
-    });
+    };
 
+    // Asignar IDs de cliente/usuario si existen
+    if (clienteIdStr) {
+      nuevaOrdenData.clienteId = new Types.ObjectId(clienteIdStr);
+    }
+    if (usuarioClienteIdStr) {
+      nuevaOrdenData.usuarioClienteId = new Types.ObjectId(usuarioClienteIdStr);
+    }
+
+    // Asignar campos guest si no hay cliente registrado (o copiarlos siempre también es válido)
+    // Para consistencia, copiamos los datos guest si existen en la cotización
+    if (cotizacionDoc.nombreEmpresa) nuevaOrdenData.nombreEmpresa = cotizacionDoc.nombreEmpresa;
+    if (cotizacionDoc.nombreContacto) nuevaOrdenData.nombreContacto = cotizacionDoc.nombreContacto;
+    if (cotizacionDoc.emailContacto) nuevaOrdenData.emailContacto = cotizacionDoc.emailContacto;
+    if (cotizacionDoc.telefonoContacto) nuevaOrdenData.telefonoContacto = cotizacionDoc.telefonoContacto;
+
+    const nuevaOrden = new this.ordenTrabajoModel(nuevaOrdenData);
     const ordenGuardada = await nuevaOrden.save();
 
     // Actualizar la cotización: estado='aceptada', fechaAceptacion=now, ordenTrabajoId=nuevaOT
-    // Asegurar que ambos IDs sean ObjectIds válidos
     const cotizacionObjectId = new Types.ObjectId(cotizacionId);
-
-    // Extraer el _id de la orden guardada de forma segura
+    
     const ordenTrabajoIdObjectId =
       ordenGuardada._id instanceof Types.ObjectId
         ? ordenGuardada._id
@@ -224,46 +256,66 @@ export class OrdenesTrabajoService {
       )
       .exec();
 
-    // Enviar email de notificación
-    try {
-      const cliente = await this.clientesService.findOne(clienteIdStr);
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    // Enviar email de notificación SI enviarEmail es true Y hay un email destinatario
+    if (enviarEmail) {
+      try {
+        let emailDestino = '';
+        let nombreCliente = '';
+        let nombreUsuario = '';
 
-      await this.emailsService.sendCotizacionAceptadaYOrdenEmail(
-        {
-          nombreCliente: cliente.empresa,
-          nombreUsuario: usuarioCliente.nombre,
-          folioCotizacion: cotizacion.folio,
-          folioOrdenTrabajo: folio,
-          fechaAceptacion: fechaCreacion.toLocaleDateString('es-MX', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-          }),
-          subTotalCotizacion: `$${cotizacion.total.toLocaleString('es-MX', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}`,
-          ivaCotizacion: `$${(cotizacion.total * 0.16).toLocaleString('es-MX', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}`,
-          totalCotizacion: `$${(cotizacion.total * 1.16).toLocaleString(
-            'es-MX',
+        // Determinar destinatario
+        if (usuarioClienteIdStr && clienteIdStr) {
+           const usuarioCliente = await this.clientesService.findUsuarioClienteById(usuarioClienteIdStr);
+           const cliente = await this.clientesService.findOne(clienteIdStr);
+           emailDestino = usuarioCliente.email;
+           nombreUsuario = usuarioCliente.nombre;
+           nombreCliente = cliente.empresa;
+        } else if (cotizacionDoc.emailContacto) {
+           // Fallback a email de contacto guest
+           emailDestino = cotizacionDoc.emailContacto;
+           nombreUsuario = cotizacionDoc.nombreContacto || 'Estimado Usuario';
+           nombreCliente = cotizacionDoc.nombreEmpresa || '';
+        }
+
+        if (emailDestino) {
+          const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+          
+          await this.emailsService.sendCotizacionAceptadaYOrdenEmail(
             {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
+              nombreCliente,
+              nombreUsuario,
+              folioCotizacion: cotizacion.folio,
+              folioOrdenTrabajo: folio,
+              fechaAceptacion: fechaCreacion.toLocaleDateString('es-MX', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              }),
+              subTotalCotizacion: `$${cotizacion.total.toLocaleString('es-MX', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}`,
+              ivaCotizacion: `$${(cotizacion.total * 0.16).toLocaleString('es-MX', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}`,
+              totalCotizacion: `$${(cotizacion.total * 1.16).toLocaleString(
+                'es-MX',
+                {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                },
+              )}`,
+              cantidadTrabajadores: trabajadores.length,
+              linkMisCotizaciones: `${frontendUrl}/cliente/cotizaciones`,
+              linkMisOrdenes: `${frontendUrl}/cliente/ordenes`,
             },
-          )}`,
-          cantidadTrabajadores: trabajadores.length,
-          linkMisCotizaciones: `${frontendUrl}/cliente/cotizaciones`,
-          linkMisOrdenes: `${frontendUrl}/cliente/ordenes`,
-        },
-        usuarioCliente.email,
-      );
-    } catch (emailError) {
-      // Solo loggear el error, no fallar la transacción
-      console.error('Error al enviar email de notificación:', emailError);
+            emailDestino,
+          );
+        }
+      } catch (emailError) {
+        console.error('Error al enviar email de notificación:', emailError);
+      }
     }
 
     return ordenGuardada;
@@ -399,6 +451,8 @@ export class OrdenesTrabajoService {
         { 'usuarioCliente.nombre': searchRegex },
         { 'usuarioCliente.email': searchRegex },
         { 'cotizacion.folio': searchRegex },
+        { nombreEmpresa: searchRegex },
+        { nombreContacto: searchRegex },
       ];
 
       // Si la búsqueda coincide con un estado, agregarlo
@@ -439,8 +493,10 @@ export class OrdenesTrabajoService {
         folio: 1,
         fechaCreacion: 1,
         estado: 1,
-        empresa: '$cliente.empresa',
-        nombreUsuario: '$usuarioCliente.nombre',
+        empresa: { $ifNull: ['$cliente.empresa', '$nombreEmpresa'] },
+        nombreSolicitante: {
+          $ifNull: ['$usuarioCliente.nombre', '$nombreContacto'],
+        },
         nombreSede: '$sede.ciudad',
         folioCotizacion: '$cotizacion.folio',
       },
@@ -456,7 +512,7 @@ export class OrdenesTrabajoService {
       fechaCreacion: item.fechaCreacion,
       estado: item.estado,
       empresa: item.empresa,
-      nombreUsuario: item.nombreUsuario,
+      nombreSolicitante: item.nombreSolicitante,
       nombreSede: item.nombreSede,
       folioCotizacion: item.folioCotizacion,
     }));
@@ -564,6 +620,9 @@ export class OrdenesTrabajoService {
     const countPipeline = [...pipeline, { $count: 'total' }];
     const countResult = await this.ordenTrabajoModel.aggregate(countPipeline);
     const total = countResult[0]?.total || 0;
+
+    // Ordenar por fecha de creación descendente (más reciente primero)
+    pipeline.push({ $sort: { fechaCreacion: -1 } });
 
     // Agregar paginación
     pipeline.push({ $skip: skip });

@@ -1,11 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
   IsArray,
-  ArrayMinSize,
   ValidateNested,
-  IsInt,
-  Min,
-  Max,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CreateTrabajadorDto } from '../../ordenes-trabajo/dto/create-trabajador.dto';
@@ -31,9 +27,6 @@ export class AceptarCotizacionDto {
     ],
   })
   @IsArray()
-  @ArrayMinSize(1, {
-    message: 'Debe agregar al menos un trabajador',
-  })
   @ValidateNested({ each: true })
   @Type(() => CreateTrabajadorDto)
   trabajadores: CreateTrabajadorDto[];

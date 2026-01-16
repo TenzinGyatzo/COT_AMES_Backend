@@ -5,6 +5,7 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule'; // Import Cron decorators
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import {
@@ -13,6 +14,7 @@ import {
   ItemCotizacion,
 } from './schemas/cotizacion.schema';
 import { CreateCotizacionDto } from './dto/create-cotizacion.dto';
+import { CreateCotizacionAdminDto } from './dto/create-cotizacion-admin.dto';
 import { UpdateCotizacionDto } from './dto/update-cotizacion.dto';
 import { FilterCotizacionDto } from './dto/filter-cotizacion.dto';
 import { FilterMisCotizacionesDto } from './dto/filter-mis-cotizaciones.dto';
@@ -24,8 +26,9 @@ import { ServiciosService } from '../servicios/servicios.service';
 import { SedesService } from '../sedes/sedes.service';
 import { EmailService } from './services/email.service';
 import { PdfService } from './services/pdf.service';
-import { Logger } from '@nestjs/common';
+import { Logger, UnauthorizedException } from '@nestjs/common';
 import { Types } from 'mongoose';
+import * as crypto from 'crypto';
 import { OrdenesTrabajoService } from '../ordenes-trabajo/ordenes-trabajo.service';
 import {
   OrdenTrabajo,
@@ -148,6 +151,137 @@ export class CotizacionesService {
 
       return await cotizacion.save();
     } catch {
+      throw new BadRequestException('Error al crear la cotización');
+    }
+  }
+
+  async createAdminCotizacion(
+    createCotizacionAdminDto: CreateCotizacionAdminDto,
+  ): Promise<Cotizacion> {
+    // Validar que la sede exista
+    await this.sedesService.findOne(createCotizacionAdminDto.sedeId);
+
+    // Obtener servicios y crear items con snapshots
+    const items: ItemCotizacion[] = [];
+    let total = 0;
+
+    for (const itemDto of createCotizacionAdminDto.items) {
+      const servicio = await this.serviciosService.findOne(itemDto.servicioId);
+      const servicioDoc = servicio as any;
+
+      const subtotal = servicio.precioUnitario * itemDto.cantidad;
+      total += subtotal;
+
+      const item: any = {
+        servicioId: servicioDoc._id || servicioDoc.id,
+        nombreServicioSnapshot: servicio.nombre,
+        precioUnitarioSnapshot: servicio.precioUnitario,
+        cantidad: itemDto.cantidad,
+        subtotal,
+      };
+
+      // Incluir descripcionServicioSnapshot solo si el servicio tiene descripción
+      if (
+        servicio.descripcion !== undefined &&
+        servicio.descripcion !== null &&
+        servicio.descripcion !== ''
+      ) {
+        item.descripcionServicioSnapshot = servicio.descripcion;
+      }
+
+      items.push(item);
+    }
+
+    // Generar folio único
+    const folio = await this.generateFolio();
+
+    // Calcular fechas
+    const fechaCreacion = new Date();
+    const fechaVencimiento = createCotizacionAdminDto.fechaVencimiento
+      ? new Date(createCotizacionAdminDto.fechaVencimiento)
+      : new Date(fechaCreacion.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 días por defecto
+
+    // Calcular estado inicial
+    const estado = fechaVencimiento < fechaCreacion ? 'vencida' : 'vigente';
+    const fechaEstado = fechaCreacion;
+
+    // Generar Magic Token si se envía por email
+    let magicToken: string | undefined;
+    let magicTokenExpiresAt: Date | undefined;
+
+    if (createCotizacionAdminDto.enviarEmail && createCotizacionAdminDto.emailContacto) {
+      magicToken = crypto.randomBytes(32).toString('hex');
+      // Expira junto con la cotización (fechaVencimiento)
+      magicTokenExpiresAt = fechaVencimiento;
+    }
+
+    try {
+      const cotizacionData: any = {
+        folio,
+        // No establecer clienteId ni usuarioClienteId para cotizaciones guest
+        nombreEmpresa: createCotizacionAdminDto.nombreEmpresa,
+        nombreContacto: createCotizacionAdminDto.nombreContacto,
+        emailContacto: createCotizacionAdminDto.emailContacto || '',
+        telefonoContacto: createCotizacionAdminDto.telefonoContacto,
+        sedeId: createCotizacionAdminDto.sedeId,
+        items,
+        total,
+        moneda: createCotizacionAdminDto.moneda || 'MXN',
+        fechaCreacion,
+        fechaVencimiento,
+        estado,
+        magicToken,
+        magicTokenExpiresAt,
+      };
+
+      // Agregar timestamp del estado inicial
+      if (estado === 'vigente') {
+        cotizacionData.fechaEstadoVigente = fechaEstado;
+      } else {
+        cotizacionData.fechaEstadoVencida = fechaEstado;
+      }
+
+      const cotizacion = new this.cotizacionModel(cotizacionData);
+      const savedCotizacion = await cotizacion.save();
+
+      // Si se solicita enviar email y hay un correo válido, enviar la cotización
+      if (
+        createCotizacionAdminDto.enviarEmail &&
+        createCotizacionAdminDto.emailContacto
+      ) {
+        try {
+          // Obtener detalle completo para el PDF (con sede poblada)
+          const cotizacionCompleta = await this.findOne(savedCotizacion._id.toString());
+          
+          // Generar PDF y enviar email
+          const pdfBuffer = await this.pdfService.generatePdfBuffer(cotizacionCompleta);
+          
+          await this.emailService.sendAdminQuotationEmail(
+            createCotizacionAdminDto.emailContacto,
+            createCotizacionAdminDto.nombreContacto,
+            folio,
+            pdfBuffer,
+            magicToken,
+          );
+          
+          this.logger.log(
+            `Email de cotización ${folio} enviado a ${createCotizacionAdminDto.emailContacto}`,
+          );
+        } catch (emailError) {
+          this.logger.error(
+            `Error al generar PDF o enviar email para cotización ${folio}: ${emailError.message}`,
+          );
+          // No lanzamos excepción para no revertir la creación de la cotización
+          // pero dejamos rastro en el log.
+        }
+      }
+
+      return savedCotizacion;
+    } catch (error) {
+      this.logger.error(
+        `Error al crear cotización admin: ${error.message}`,
+        error.stack,
+      );
       throw new BadRequestException('Error al crear la cotización');
     }
   }
@@ -276,6 +410,8 @@ export class CotizacionesService {
         { 'usuarioCliente.nombre': searchRegex },
         { 'usuarioCliente.email': searchRegex },
         { emailContacto: searchRegex },
+        { nombreEmpresa: searchRegex }, // Búsqueda en nombreEmpresa (guest)
+        { nombreContacto: searchRegex }, // Búsqueda en nombreContacto (guest)
       ];
 
       // Si la búsqueda coincide con un estado, agregarlo
@@ -312,8 +448,11 @@ export class CotizacionesService {
         folio: 1,
         fecha: '$fechaCreacion',
         montoTotal: '$total',
-        empresa: '$cliente.empresa',
-        nombreSolicitante: '$usuarioCliente.nombre',
+        // Usar $ifNull para fallback a campos guest si no hay cliente/usuario
+        empresa: { $ifNull: ['$cliente.empresa', '$nombreEmpresa'] },
+        nombreSolicitante: {
+          $ifNull: ['$usuarioCliente.nombre', '$nombreContacto'],
+        },
         sede: '$sede.ciudad',
         rfc: '$cliente.rfc',
         estado: 1,
@@ -479,6 +618,17 @@ export class CotizacionesService {
       .exec();
 
     return resultado.modifiedCount;
+  }
+
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async handleCron() {
+    this.logger.debug('Ejecutando tarea programada: Marcar cotizaciones vencidas');
+    const count = await this.markExpiredQuotations();
+    if (count > 0) {
+      this.logger.log(
+        `Se marcaron ${count} cotizaciones como vencidas automáticamente`,
+      );
+    }
   }
 
   async findByClienteId(
@@ -1154,6 +1304,170 @@ export class CotizacionesService {
         `Cotización con ID ${cotizacionId} no encontrada`,
       );
     }
+
+    return cotizacionActualizada;
+  }
+
+  async aceptarCotizacionAdmin(
+    cotizacionId: string,
+    trabajadores: any[],
+    enviarEmail: boolean = false,
+  ): Promise<Cotizacion> {
+    const cotizacion = await this.findOne(cotizacionId);
+
+    // Validaciones de estado
+    if (cotizacion.estado !== 'vigente') {
+      throw new BadRequestException(
+        `La cotización debe estar en estado 'vigente' para ser aceptada. Estado actual: ${cotizacion.estado}`,
+      );
+    }
+
+    if (cotizacion.fechaVencimiento < new Date()) {
+      throw new BadRequestException(
+        'No se puede aceptar una cotización vencida',
+      );
+    }
+
+    // Validar trabajadores (opcional para admin, pero respetando el límite si se proporcionan)
+    if (trabajadores && trabajadores.length > 0) {
+      const cantidadServicios = cotizacion.items.reduce(
+        (sum, item) => sum + item.cantidad,
+        0,
+      );
+
+      if (trabajadores.length > cantidadServicios) {
+        throw new BadRequestException(
+          `La cantidad de trabajadores (${trabajadores.length}) no puede exceder la cantidad de servicios en la cotización (${cantidadServicios})`,
+        );
+      }
+    }
+
+    // Llamar a ordenesTrabajoService con enviarEmail = false (o lo que pida el controller)
+    // Pasamos null como usuarioClienteId porque es acción de admin
+    await this.ordenesTrabajoService.createFromCotizacion(
+      cotizacionId,
+      null,
+      trabajadores || [],
+      enviarEmail,
+    );
+
+    return await this.findOne(cotizacionId);
+  }
+
+  async rechazarCotizacionAdmin(cotizacionId: string): Promise<Cotizacion> {
+    const cotizacion = await this.findOne(cotizacionId);
+
+    if (cotizacion.estado !== 'vigente') {
+      throw new BadRequestException(
+        `La cotización debe estar en estado 'vigente' para ser rechazada. Estado actual: ${cotizacion.estado}`,
+      );
+    }
+
+    const fechaRechazo = new Date();
+    const cotizacionActualizada = await this.cotizacionModel
+      .findByIdAndUpdate(
+        cotizacionId,
+        {
+          estado: 'rechazada',
+          fechaRechazo: fechaRechazo,
+          fechaEstadoRechazada: fechaRechazo,
+        },
+        { new: true },
+      )
+      .populate('clienteId')
+      .populate('sedeId')
+      .populate('items.servicioId')
+      .exec();
+
+    if (!cotizacionActualizada) {
+      throw new NotFoundException(
+        `Cotización con ID ${cotizacionId} no encontrada`,
+      );
+    }
+
+    return cotizacionActualizada;
+  }
+
+  // --- MÉTODOS PÚBLICOS (MAGIC LINK) ---
+
+  async findOneByMagicToken(token: string): Promise<Cotizacion> {
+    const cotizacion = await this.cotizacionModel
+      .findOne({ magicToken: token })
+      .populate('sedeId')
+      .populate('items.servicioId')
+      .exec();
+
+    if (!cotizacion) {
+      throw new NotFoundException('Cotización no encontrada o enlace inválido');
+    }
+
+    // Verificar expiración
+    if (cotizacion.magicTokenExpiresAt && cotizacion.magicTokenExpiresAt < new Date()) {
+      throw new UnauthorizedException('El enlace ha expirado (vigencia de 30 días superada)');
+    }
+
+    return cotizacion;
+  }
+
+  async aceptarCotizacionByMagicToken(
+    token: string,
+    trabajadores: any[],
+  ): Promise<Cotizacion> {
+    const cotizacion = await this.findOneByMagicToken(token);
+
+    if (cotizacion.estado !== 'vigente') {
+      throw new BadRequestException(
+        `La cotización no puede ser aceptada. Estado actual: ${cotizacion.estado}`,
+      );
+    }
+
+    if (!trabajadores || trabajadores.length === 0) {
+      throw new BadRequestException('Debe proporcionar la información de los trabajadores');
+    }
+
+    const cantidadServicios = cotizacion.items.reduce((sum, item) => sum + item.cantidad, 0);
+    if (trabajadores.length > cantidadServicios) {
+      throw new BadRequestException(
+        `La cantidad de trabajadores (${trabajadores.length}) no puede exceder la cantidad de servicios (${cantidadServicios})`,
+      );
+    }
+
+    // Aceptar mediante el servicio de órdenes (como admin pero marcar como guest)
+    await this.ordenesTrabajoService.createFromCotizacion(
+      (cotizacion as any)._id.toString(),
+      null, // No hay usuarioClienteId
+      trabajadores,
+      true, // Enviar email de confirmación
+    );
+
+    // Limpiar token para que no se use de nuevo
+    await this.cotizacionModel.findByIdAndUpdate((cotizacion as any)._id, {
+      $unset: { magicToken: 1, magicTokenExpiresAt: 1 }
+    });
+
+    return await this.findOne((cotizacion as any)._id.toString());
+  }
+
+  async rechazarCotizacionByMagicToken(token: string): Promise<Cotizacion> {
+    const cotizacion = await this.findOneByMagicToken(token);
+
+    if (cotizacion.estado !== 'vigente') {
+      throw new BadRequestException(
+        `La cotización no puede ser rechazada. Estado actual: ${cotizacion.estado}`,
+      );
+    }
+
+    const fechaRechazo = new Date();
+    const cotizacionActualizada = await this.cotizacionModel.findByIdAndUpdate(
+      (cotizacion as any)._id,
+      {
+        estado: 'rechazada',
+        fechaRechazo,
+        fechaEstadoRechazada: fechaRechazo,
+        $unset: { magicToken: 1, magicTokenExpiresAt: 1 } // Limpiar token
+      },
+      { new: true }
+    ).exec();
 
     return cotizacionActualizada;
   }
