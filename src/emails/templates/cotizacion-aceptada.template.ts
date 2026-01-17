@@ -26,7 +26,7 @@ export function cotizacionAceptadaTemplate(
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cotización Aceptada</title>
 </head>
-<body style="margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f4f4;">
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4;">
   <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f4f4f4; padding: 20px 0;">
     <tr>
       <td align="center">

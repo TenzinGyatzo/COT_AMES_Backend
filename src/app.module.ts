@@ -13,6 +13,7 @@ import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { EmailsModule } from './emails/emails.module';
 import { ScheduleModule } from '@nestjs/schedule'; // Import ScheduleModule
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { ScheduleModule } from '@nestjs/schedule'; // Import ScheduleModule
     CotizacionesModule,
     OrdenesTrabajoModule,
     MetricsModule,
+    WhatsappModule,
   ],
   controllers: [AppController],
   providers: [AppService],

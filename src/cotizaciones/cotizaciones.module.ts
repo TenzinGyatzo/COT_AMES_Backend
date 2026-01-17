@@ -15,6 +15,7 @@ import { PdfService } from './services/pdf.service';
 import { OrdenesTrabajoModule } from '../ordenes-trabajo/ordenes-trabajo.module';
 
 import { EmailsModule } from '../emails/emails.module';
+import { WhatsappModule } from '../whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { EmailsModule } from '../emails/emails.module';
     SedesModule,
     EmailsModule,
     forwardRef(() => OrdenesTrabajoModule),
+    WhatsappModule,
   ],
   controllers: [CotizacionesController],
   providers: [CotizacionesService, EmailService, PdfService],

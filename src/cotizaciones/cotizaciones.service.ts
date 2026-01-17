@@ -30,10 +30,8 @@ import { Logger, UnauthorizedException } from '@nestjs/common';
 import { Types } from 'mongoose';
 import * as crypto from 'crypto';
 import { OrdenesTrabajoService } from '../ordenes-trabajo/ordenes-trabajo.service';
-import {
-  OrdenTrabajo,
-  OrdenTrabajoDocument,
-} from '../ordenes-trabajo/schemas/orden-trabajo.schema';
+import { OrdenTrabajo, OrdenTrabajoDocument } from '../ordenes-trabajo/schemas/orden-trabajo.schema';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 
 @Injectable()
 export class CotizacionesService {
@@ -51,6 +49,7 @@ export class CotizacionesService {
     private pdfService: PdfService,
     @Inject(forwardRef(() => OrdenesTrabajoService))
     private ordenesTrabajoService: OrdenesTrabajoService,
+    private whatsappService: WhatsappService,
   ) {}
 
   async generateFolio(): Promise<string> {
@@ -1253,8 +1252,13 @@ export class CotizacionesService {
       trabajadores,
     );
 
-    // Retornar cotización actualizada
-    return await this.findOne(cotizacionId);
+    // Obtener cotización actualizada
+    const cotizacionActualizada = await this.findOne(cotizacionId);
+
+    // Notificar al admin vía WhatsApp (falla silenciosamente si hay error)
+    await this.handleWhatsAppNotification(cotizacionActualizada);
+
+    return cotizacionActualizada;
   }
 
   async rechazarCotizacion(
@@ -1445,7 +1449,12 @@ export class CotizacionesService {
       $unset: { magicToken: 1, magicTokenExpiresAt: 1 }
     });
 
-    return await this.findOne((cotizacion as any)._id.toString());
+    const cotizacionActualizada = await this.findOne((cotizacion as any)._id.toString());
+
+    // Notificar al admin vía WhatsApp (falla silenciosamente si hay error)
+    await this.handleWhatsAppNotification(cotizacionActualizada);
+
+    return cotizacionActualizada;
   }
 
   async rechazarCotizacionByMagicToken(token: string): Promise<Cotizacion> {
@@ -1470,5 +1479,85 @@ export class CotizacionesService {
     ).exec();
 
     return cotizacionActualizada;
+  }
+
+  /**
+   * Maneja el envío de notificaciones de WhatsApp cuando una cotización es aceptada.
+   * Este método es resiliente y no arroja errores que interrumpan el flujo principal.
+   */
+  private async handleWhatsAppNotification(cotizacion: any): Promise<void> {
+    try {
+      let clienteNombre = 'Cliente Desconocido';
+
+      // 1. Intentar obtener de clienteId (poblado o ID)
+      if (cotizacion.clienteId) {
+        let cliente = cotizacion.clienteId;
+
+        // Si es un ID (no poblado), intentar cargarlo para obtener datos de empresa
+        if (
+          typeof cliente === 'string' ||
+          cliente instanceof Types.ObjectId ||
+          (cliente && cliente._id && Object.keys(cliente).length === 1)
+        ) {
+          try {
+            const clienteIdStr =
+              typeof cliente === 'string' ? cliente : cliente.toString();
+            cliente = await this.clientesService.findOne(clienteIdStr);
+          } catch (e) {
+            this.logger.warn(
+              `No se pudo cargar cliente info para notificación: ${e.message}`,
+            );
+          }
+        }
+
+        // Si tenemos el objeto cliente (ya sea poblado originalmente o cargado recién)
+        if (cliente && typeof cliente === 'object') {
+          // Según schema Cliente: empresa. 
+          // Agregamos fallbacks por si acaso el schema cambiara o tuviera datos dinámicos.
+          clienteNombre = cliente.empresa || cliente.nombreContacto || cliente.email || clienteNombre;
+        }
+      }
+
+      // 2. Si sigue sin identificarse, intentar con campos de cotización Guest (Usuario no registrado)
+      // Verificados en CotizacionSchema: nombreEmpresa, nombreContacto, emailContacto
+      if (clienteNombre === 'Cliente Desconocido') {
+        clienteNombre =
+          cotizacion.nombreEmpresa ||
+          cotizacion.nombreContacto ||
+          cotizacion.emailContacto ||
+          clienteNombre;
+      }
+
+      // 3. Fallback final robusto solicitado
+      if (clienteNombre === 'Cliente Desconocido' && cotizacion.emailContacto) {
+        clienteNombre = cotizacion.emailContacto;
+      }
+
+      const notificationData = {
+        folio: cotizacion.folio,
+        clienteNombre,
+        total: cotizacion.total,
+        currency: cotizacion.moneda || 'MXN',
+      };
+
+      const result =
+        await this.whatsappService.sendCotizacionAceptadaNotification(
+          notificationData,
+        );
+
+      if (!result.success) {
+        this.logger.warn(
+          `No se pudo enviar notificación de WhatsApp para cotización ${cotizacion.folio}: ${result.error}`,
+        );
+      } else {
+        this.logger.log(
+          `Notificación de WhatsApp enviada exitosamente para ${cotizacion.folio}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error inesperado en handleWhatsAppNotification para ${cotizacion.folio}: ${error.message}`,
+      );
+    }
   }
 }
