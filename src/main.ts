@@ -52,11 +52,16 @@ async function bootstrap() {
   // Puerto dinámico
   const port = configService.get<number>('PORT') || 3000;
   await app.listen(port);
-  console.log(`🚀 Aplicación corriendo en: http://localhost:${port}`);
-  if (swaggerEnabled) {
-    console.log(
-      `📚 Documentación Swagger disponible en: http://localhost:${port}/api/docs`,
-    );
+
+  const nodeEnv = configService.get<string>('NODE_ENV');
+
+  if (nodeEnv === 'development') {
+    console.log(`🚀 Aplicación corriendo en: http://localhost:${port}`);
+
+    if (swaggerEnabled) {
+      console.log(`📚 Documentación Swagger disponible en: http://localhost:${port}/api/docs`);
+    }
   }
+
 }
 bootstrap();
