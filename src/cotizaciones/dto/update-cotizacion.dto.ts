@@ -19,6 +19,14 @@ export class UpdateCotizacionDto {
   emailContacto?: string;
 
   @ApiPropertyOptional({
+    description: 'Nombre(s) de las personas a evaluar',
+    example: 'Juan Pérez, María López',
+  })
+  @IsOptional()
+  @IsString()
+  personasAEvaluar?: string;
+
+  @ApiPropertyOptional({
     description: 'Estado de la cotización',
     enum: ['vigente', 'vencida'],
     example: 'vencida',

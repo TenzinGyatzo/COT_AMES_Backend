@@ -222,6 +222,7 @@ export class CotizacionesService {
         nombreContacto: createCotizacionAdminDto.nombreContacto,
         emailContacto: createCotizacionAdminDto.emailContacto || '',
         telefonoContacto: createCotizacionAdminDto.telefonoContacto,
+        personasAEvaluar: createCotizacionAdminDto.personasAEvaluar,
         sedeId: createCotizacionAdminDto.sedeId,
         items,
         total,

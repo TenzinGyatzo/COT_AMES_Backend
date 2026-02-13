@@ -49,6 +49,9 @@ export class Cotizacion {
   @Prop()
   telefonoContacto?: string;
 
+  @Prop()
+  personasAEvaluar?: string;
+
   @Prop({ type: Types.ObjectId, ref: 'Sede', required: true })
   sedeId: Types.ObjectId;
 

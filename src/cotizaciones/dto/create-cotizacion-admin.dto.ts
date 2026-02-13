@@ -70,6 +70,14 @@ export class CreateCotizacionAdminDto {
   @IsString()
   telefonoContacto?: string;
 
+  @ApiPropertyOptional({
+    description: 'Nombre(s) de las personas a evaluar',
+    example: 'Juan Pérez, María López',
+  })
+  @IsOptional()
+  @IsString()
+  personasAEvaluar?: string;
+
   @ApiProperty({
     description: 'Items de la cotización',
     type: [CreateItemCotizacionAdminDto],

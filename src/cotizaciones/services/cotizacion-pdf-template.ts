@@ -173,7 +173,7 @@ export const getCotizacionDefinition = (
               { text: (cliente.rfc || '-') + '\n', style: 'value' }
             ]
           },
-          // Columna 2: Nombre de Contacto
+          // Columna 2: Nombre de Contacto y Teléfono
           {
             width: '*',
             text: [
@@ -183,12 +183,14 @@ export const getCotizacionDefinition = (
               { text: (usuario.telefono || '-') + '\n', style: 'value' }
             ]
           },
-          // Columna 3: Datos de Contacto
+          // Columna 3: Email y Persona(s) a evaluar (tercera posición segunda fila)
           {
             width: '*',
             text: [
               { text: 'Email:\n', style: 'label' },
-              { text: (usuario.email || detalle.emailContacto || '-') + '\n', style: 'value' },
+              { text: (usuario.email || detalle.emailContacto || '-') + '\n\n', style: 'value' },
+              { text: 'Persona(s) a evaluar – nombre(s):\n', style: 'label' },
+              { text: (detalle.personasAEvaluar || '-') + '\n', style: 'value' }
             ]
           }
         ],
