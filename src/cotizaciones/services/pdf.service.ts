@@ -25,8 +25,21 @@ export class PdfService {
     try {
       const logoPath = path.join(process.cwd(), 'src/assets/logos/exin-cv-salud-laboral-logo.png');
       const logoBase64 = this.getBase64Image(logoPath);
-      
-      const docDefinition = getCotizacionDefinition(detalle, logoBase64);
+
+      let mocLogoBase64: string | undefined;
+      if (detalle.incluirDatosBancarios) {
+        const mocLogoPath = path.join(
+          process.cwd(),
+          'src/assets/logos/moc-caborca-logo.png',
+        );
+        mocLogoBase64 = this.getBase64Image(mocLogoPath);
+      }
+
+      const docDefinition = getCotizacionDefinition(
+        detalle,
+        logoBase64,
+        mocLogoBase64,
+      );
       const pdfDoc = await this.printer.createPdfKitDocument(docDefinition);
       
       return new Promise((resolve, reject) => {

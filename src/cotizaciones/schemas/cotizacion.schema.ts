@@ -110,6 +110,9 @@ export class Cotizacion {
 
   @Prop()
   magicTokenExpiresAt?: Date;
+
+  @Prop({ default: false })
+  incluirDatosBancarios?: boolean;
 }
 
 export const CotizacionSchema = SchemaFactory.createForClass(Cotizacion);

@@ -115,4 +115,14 @@ export class CreateCotizacionAdminDto {
   @IsOptional()
   @IsBoolean()
   enviarEmail?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Indica si el PDF de la cotización debe incluir una segunda página con datos bancarios',
+    example: false,
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  incluirDatosBancarios?: boolean;
 }

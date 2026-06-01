@@ -232,6 +232,8 @@ export class CotizacionesService {
         estado,
         magicToken,
         magicTokenExpiresAt,
+        incluirDatosBancarios:
+          createCotizacionAdminDto.incluirDatosBancarios ?? false,
       };
 
       // Agregar timestamp del estado inicial
