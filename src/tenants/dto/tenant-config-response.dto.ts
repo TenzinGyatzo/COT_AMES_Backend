@@ -79,7 +79,8 @@ export class TenantConfigResponseDto {
 
   @ApiPropertyOptional({
     type: TenantBancariosDto,
-    description: 'Contenido bancario para PDF (Story 2.4)',
+    description:
+      'Contenido bancario para PDF (Story 2.4) + logoUrl del banco (Story 2.5)',
   })
   bancarios?: TenantBancariosDto;
 

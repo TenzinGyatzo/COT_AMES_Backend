@@ -63,6 +63,70 @@ describe('CotizacionesService resolveVencimiento (Story 2.4)', () => {
       (service as any).resolveVencimiento('2000-01-01T00:00:00.000Z'),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it('sinVigencia: true omite fechaVencimiento (Story 6.15)', async () => {
+    const r = await (service as any).resolveVencimiento(undefined, {
+      sinVigencia: true,
+    });
+    expect(r.sinVigencia).toBe(true);
+    expect(r.fechaVencimiento).toBeUndefined();
+    expect(r.estado).toBe('vigente');
+  });
+
+  it('sinVigencia + fechaVencimiento → 400 (Story 6.15)', async () => {
+    await expect(
+      (service as any).resolveVencimiento('2030-12-31T23:59:59.000Z', {
+        sinVigencia: true,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('CotizacionesService.resolveMagicExpiresAt (Story 6.15)', () => {
+  const ModelCtor: any = class {};
+  const service = new CotizacionesService(
+    ModelCtor as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    { getTenantId: jest.fn() } as any,
+    {} as any,
+    {} as any,
+  );
+
+  it('sinVigencia → fechaCreacion + 365d', () => {
+    const creacion = new Date('2026-01-01T00:00:00.000Z');
+    const expires = (service as any).resolveMagicExpiresAt({
+      sinVigencia: true,
+      fechaCreacion: creacion,
+    });
+    expect(expires.getTime()).toBe(
+      creacion.getTime() + 365 * 24 * 60 * 60 * 1000,
+    );
+  });
+
+  it('!sinVigencia + fecha válida → usa fechaVencimiento', () => {
+    const fv = new Date('2030-06-15T23:59:59.000Z');
+    const expires = (service as any).resolveMagicExpiresAt({
+      sinVigencia: false,
+      fechaVencimiento: fv,
+    });
+    expect(expires.getTime()).toBe(fv.getTime());
+  });
+
+  it('!sinVigencia + fecha inválida/ausente → 400', () => {
+    expect(() =>
+      (service as any).resolveMagicExpiresAt({
+        sinVigencia: false,
+        fechaVencimiento: 'no-es-fecha',
+      }),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      (service as any).resolveMagicExpiresAt({ sinVigencia: false }),
+    ).toThrow(BadRequestException);
+  });
 });
 
 describe('CotizacionesService.create — cliente inactivo (Story 3.2)', () => {
@@ -852,6 +916,67 @@ describe('CotizacionesService.createAdminCotizacion flexible (Story 6.2)', () =>
     expect(captured.emailContacto).toBe('c@e.com');
     expect(captured.moneda).toBe('MXN');
   });
+
+  it('persiste cargoContacto (Story 6.16)', async () => {
+    let captured: any;
+    const ModelCtor: any = jest.fn().mockImplementation((data: any) => {
+      captured = data;
+      return {
+        save: jest.fn().mockResolvedValue({ ...savedDoc, ...data }),
+      };
+    });
+    service = new CotizacionesService(
+      ModelCtor as any,
+      clientesService as any,
+      serviciosService as any,
+      {} as any,
+      tenantContext as any,
+      tenantConfigService as any,
+      countersService as any,
+      {} as any,
+      {} as any,
+    );
+    jest.spyOn(service, 'findOne').mockResolvedValue(savedDoc as any);
+
+    await service.createAdminCotizacion({
+      items: baseItems,
+      nombreContacto: 'Ana',
+      cargoContacto: 'Gerente de Compras',
+    } as any);
+
+    expect(captured.cargoContacto).toBe('Gerente de Compras');
+    expect(captured.nombreContacto).toBe('Ana');
+  });
+
+  it('omite cargoContacto vacío (Story 6.16)', async () => {
+    let captured: any;
+    const ModelCtor: any = jest.fn().mockImplementation((data: any) => {
+      captured = data;
+      return {
+        save: jest.fn().mockResolvedValue({ ...savedDoc, ...data }),
+      };
+    });
+    service = new CotizacionesService(
+      ModelCtor as any,
+      clientesService as any,
+      serviciosService as any,
+      {} as any,
+      tenantContext as any,
+      tenantConfigService as any,
+      countersService as any,
+      {} as any,
+      {} as any,
+    );
+    jest.spyOn(service, 'findOne').mockResolvedValue(savedDoc as any);
+
+    await service.createAdminCotizacion({
+      items: baseItems,
+      nombreContacto: 'Ana',
+      cargoContacto: '   ',
+    } as any);
+
+    expect(captured.cargoContacto).toBeUndefined();
+  });
 });
 
 describe('CotizacionesService.findAll search escape (Story 6.3)', () => {
@@ -904,6 +1029,114 @@ describe('CotizacionesService.findAll search escape (Story 6.3)', () => {
       (c: any) => c.nombreEmpresa,
     );
     expect(empresaCond.nombreEmpresa.$regex).toBe('Empresa\\*');
+  });
+});
+
+describe('CotizacionesService.findAll clienteId (Story 3.7)', () => {
+  const tenantId = new Types.ObjectId();
+  const clienteId = new Types.ObjectId();
+  const otherClienteId = new Types.ObjectId();
+  const tenantContext = { getTenantId: jest.fn().mockReturnValue(tenantId) };
+  const aggregateExec = jest.fn();
+  const cotizacionModel: any = {
+    aggregate: jest.fn().mockReturnValue({ exec: aggregateExec }),
+  };
+
+  let service: CotizacionesService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    aggregateExec.mockResolvedValue([
+      { data: [], totalCount: [{ count: 0 }] },
+    ]);
+    service = new CotizacionesService(
+      cotizacionModel as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      tenantContext as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+  });
+
+  it('añade clienteId + estado al $match junto a tenantId', async () => {
+    aggregateExec.mockResolvedValue([
+      { data: [], totalCount: [{ count: 3 }] },
+    ]);
+    const result = await service.findAll({
+      clienteId: clienteId.toString(),
+      estado: 'vigente',
+      page: 1,
+      limit: 1,
+    });
+    const pipeline = cotizacionModel.aggregate.mock.calls[0][0] as any[];
+    const matchStage = pipeline.find(
+      (s) =>
+        s.$match &&
+        s.$match.tenantId &&
+        s.$match.clienteId &&
+        !Array.isArray(s.$match.$or),
+    );
+    expect(matchStage).toBeTruthy();
+    expect(matchStage.$match.tenantId).toEqual(tenantId);
+    expect(matchStage.$match.estado).toBe('vigente');
+    expect(matchStage.$match.clienteId).toEqual(clienteId);
+    expect(result.total).toBe(3);
+  });
+
+  it('otro clienteId aísla match (tenantId+clienteId) y total 0', async () => {
+    aggregateExec.mockResolvedValue([
+      { data: [], totalCount: [{ count: 0 }] },
+    ]);
+    const result = await service.findAll({
+      clienteId: otherClienteId.toString(),
+      estado: 'aceptada',
+      limit: 1,
+    });
+    const pipeline = cotizacionModel.aggregate.mock.calls[0][0] as any[];
+    const matchStage = pipeline.find(
+      (s) =>
+        s.$match &&
+        s.$match.tenantId &&
+        s.$match.clienteId &&
+        !Array.isArray(s.$match.$or),
+    );
+    expect(matchStage).toBeTruthy();
+    expect(matchStage.$match.tenantId).toEqual(tenantId);
+    expect(matchStage.$match.clienteId).toEqual(otherClienteId);
+    expect(matchStage.$match.clienteId).not.toEqual(clienteId);
+    expect(matchStage.$match.estado).toBe('aceptada');
+    expect(result.total).toBe(0);
+  });
+});
+
+describe('FilterCotizacionDto clienteId (Story 3.7)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { plainToInstance } = require('class-transformer');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { validate } = require('class-validator');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const {
+    FilterCotizacionDto: FilterDto,
+  } = require('./dto/filter-cotizacion.dto');
+
+  it('acepta ObjectId válido', async () => {
+    const dto = plainToInstance(FilterDto, {
+      clienteId: '507f1f77bcf86cd799439011',
+      estado: 'vigente',
+    });
+    const errors = await validate(dto);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('rechaza ObjectId inválido', async () => {
+    const dto = plainToInstance(FilterDto, { clienteId: 'not-an-objectid' });
+    const errors = await validate(dto);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some((e: any) => e.property === 'clienteId')).toBe(true);
   });
 });
 
@@ -1185,7 +1418,10 @@ describe('CotizacionesService public magic link (Story 6.9)', () => {
     expect(call[0]).toEqual({
       magicToken: token,
       estado: 'vigente',
-      fechaVencimiento: { $gte: expect.any(Date) },
+      $or: [
+        { sinVigencia: true },
+        { fechaVencimiento: { $gte: expect.any(Date) } },
+      ],
     });
     expect(call[1].$set.estadoOrigen).toBe('magic_link');
     // Limpia actor AMES residual; no toca magicToken (sigue válido para consulta).
@@ -1452,6 +1688,7 @@ describe('CotizacionesService markExpiredQuotations (Story 6.11)', () => {
     const [filter, update] = ModelCtor.updateMany.mock.calls[0];
     expect(filter).toEqual({
       estado: 'vigente',
+      sinVigencia: { $ne: true },
       fechaVencimiento: { $lt: expect.any(Date) },
     });
     expect(filter.tenantId).toBeUndefined();
@@ -1484,6 +1721,7 @@ describe('CotizacionesService markExpiredQuotations (Story 6.11)', () => {
         const matched = docs.filter(
           (d) =>
             d.estado === filter.estado &&
+            (d as any).sinVigencia !== true &&
             d.fechaVencimiento.getTime() < cutoff.getTime(),
         );
         for (const d of matched) {
@@ -1502,6 +1740,31 @@ describe('CotizacionesService markExpiredQuotations (Story 6.11)', () => {
     expect(
       docs.find((d) => d.fechaVencimiento.getTime() === future.getTime())?.estado,
     ).toBe('vigente');
+  });
+
+  it('excluye sinVigencia del cron (Story 6.15)', async () => {
+    const past = new Date('2020-01-01T00:00:00.000Z');
+    ModelCtor.updateMany.mockImplementation(
+      (filter: Record<string, any>) => {
+        const cutoff = filter.fechaVencimiento?.$lt as Date;
+        const docs = [
+          { estado: 'vigente', fechaVencimiento: past, sinVigencia: true },
+          { estado: 'vigente', fechaVencimiento: past, sinVigencia: false },
+        ];
+        const matched = docs.filter(
+          (d) =>
+            d.estado === filter.estado &&
+            d.sinVigencia !== true &&
+            filter.sinVigencia?.$ne === true &&
+            d.fechaVencimiento.getTime() < cutoff.getTime(),
+        );
+        return Promise.resolve({ modifiedCount: matched.length });
+      },
+    );
+    const count = await service.markExpiredQuotations();
+    expect(count).toBe(1);
+    const filter = ModelCtor.updateMany.mock.calls[0][0];
+    expect(filter.sinVigencia).toEqual({ $ne: true });
   });
 
   it('con tenantId el filter incluye tenant (HTTP mark-expired)', async () => {

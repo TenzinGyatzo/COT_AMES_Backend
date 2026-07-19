@@ -151,6 +151,14 @@ export class ClientesService {
     };
   }
 
+  /** Story 7.3 — dashboard Totales.clientes */
+  async countActive(): Promise<number> {
+    const tenantId = this.tenantContext.getTenantId();
+    return this.clienteModel
+      .countDocuments({ tenantId, activo: { $ne: false } })
+      .exec();
+  }
+
   async findOne(id: string): Promise<Cliente> {
     assertStrictObjectIdOrNotFound(id, 'Cliente');
     const tenantId = this.tenantContext.getTenantId();

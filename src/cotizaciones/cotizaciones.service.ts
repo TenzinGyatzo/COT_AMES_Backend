@@ -197,12 +197,36 @@ export class CotizacionesService {
     return snapshots;
   }
 
-  private async resolveVencimiento(fechaVencimiento?: string): Promise<{
+  /**
+   * Resuelve fechas de create/repetir (Story 2.4 / 6.15).
+   * `sinVigencia: true` → sin fechaVencimiento; estado vigente.
+   */
+  private async resolveVencimiento(
+    fechaVencimiento?: string,
+    opts?: { sinVigencia?: boolean },
+  ): Promise<{
     fechaCreacion: Date;
-    fechaVencimiento: Date;
+    fechaVencimiento?: Date;
+    sinVigencia: boolean;
     estado: string;
   }> {
     const fechaCreacion = new Date();
+    if (opts?.sinVigencia) {
+      if (
+        fechaVencimiento != null &&
+        String(fechaVencimiento).trim() !== ''
+      ) {
+        throw new BadRequestException(
+          'No envíe fechaVencimiento cuando sinVigencia es true',
+        );
+      }
+      return {
+        fechaCreacion,
+        sinVigencia: true,
+        estado: 'vigente',
+      };
+    }
+
     let fechaVenc: Date;
     if (fechaVencimiento != null) {
       fechaVenc = new Date(fechaVencimiento);
@@ -242,8 +266,31 @@ export class CotizacionesService {
     return {
       fechaCreacion,
       fechaVencimiento: fechaVenc,
+      sinVigencia: false,
       estado: 'vigente',
     };
+  }
+
+  /** TTL magic link: fechaVencimiento o fechaCreacion + 365d si sin vigencia (6.15). */
+  private resolveMagicExpiresAt(cotizacion: {
+    fechaVencimiento?: Date | string;
+    fechaCreacion?: Date | string;
+    sinVigencia?: boolean;
+  }): Date {
+    if (cotizacion.sinVigencia) {
+      const base = cotizacion.fechaCreacion
+        ? new Date(cotizacion.fechaCreacion)
+        : new Date();
+      const creacion = Number.isNaN(base.getTime()) ? new Date() : base;
+      return new Date(creacion.getTime() + 365 * 24 * 60 * 60 * 1000);
+    }
+    if (cotizacion.fechaVencimiento) {
+      const fv = new Date(cotizacion.fechaVencimiento);
+      if (!Number.isNaN(fv.getTime())) return fv;
+    }
+    throw new BadRequestException(
+      'No se puede emitir el enlace: fecha de vencimiento inválida o ausente',
+    );
   }
 
   private async issueMagicToken(cotizacionId: string, expiresAt: Date) {
@@ -303,7 +350,7 @@ export class CotizacionesService {
     const nombreContacto = this.trimOrUndef(dto.nombreContacto);
     const emailContacto = this.trimOrUndef(dto.emailContacto);
     const telefonoContacto = this.trimOrUndef(dto.telefonoContacto);
-    const personasAEvaluar = this.trimOrUndef(dto.personasAEvaluar);
+    const cargoContacto = this.trimOrUndef(dto.cargoContacto);
 
     // FR-21: correo/tel sin nombre → 400, salvo legacy CRM con email solo.
     // clienteId + teléfono sin nombre no exime (Completion Notes 6.2).
@@ -344,8 +391,10 @@ export class CotizacionesService {
       tenantId,
     );
     const folio = await this.generateFolio(tenantId);
-    const { fechaCreacion, fechaVencimiento, estado } =
-      await this.resolveVencimiento(dto.fechaVencimiento);
+    const { fechaCreacion, fechaVencimiento, sinVigencia, estado } =
+      await this.resolveVencimiento(dto.fechaVencimiento, {
+        sinVigencia: !!dto.sinVigencia,
+      });
 
     let incluirDatosBancarios = !!dto.incluirDatosBancarios;
     if (incluirDatosBancarios) {
@@ -376,8 +425,8 @@ export class CotizacionesService {
       total,
       moneda: 'MXN',
       fechaCreacion,
-      fechaVencimiento,
       estado,
+      sinVigencia,
       incluirDatosBancarios,
       plantillasSnapshot,
       emailsPara,
@@ -385,6 +434,9 @@ export class CotizacionesService {
       fechaEstadoVigente: estado === 'vigente' ? fechaCreacion : undefined,
       fechaEstadoVencida: estado === 'vencida' ? fechaCreacion : undefined,
     };
+    if (fechaVencimiento) {
+      data.fechaVencimiento = fechaVencimiento;
+    }
 
     if (clienteId) {
       data.clienteId = clienteId;
@@ -402,8 +454,8 @@ export class CotizacionesService {
     if (telefonoContacto) {
       data.telefonoContacto = telefonoContacto;
     }
-    if (personasAEvaluar) {
-      data.personasAEvaluar = personasAEvaluar;
+    if (cargoContacto) {
+      data.cargoContacto = cargoContacto;
     }
     this.applyCreadorFields(data, actor);
 
@@ -679,8 +731,15 @@ export class CotizacionesService {
     );
 
     const folio = await this.generateFolio(tenantId);
+    const sinVigencia =
+      dto.sinVigencia !== undefined
+        ? !!dto.sinVigencia
+        : !!fuente.sinVigencia;
     const { fechaCreacion, fechaVencimiento, estado } =
-      await this.resolveVencimiento(dto.fechaVencimiento);
+      await this.resolveVencimiento(
+        sinVigencia ? undefined : dto.fechaVencimiento,
+        { sinVigencia },
+      );
 
     const emailsPara = Array.isArray(fuente.emailsPara)
       ? [...fuente.emailsPara]
@@ -696,8 +755,8 @@ export class CotizacionesService {
       total,
       moneda: 'MXN',
       fechaCreacion,
-      fechaVencimiento,
       estado,
+      sinVigencia,
       incluirDatosBancarios,
       plantillasSnapshot,
       emailsPara,
@@ -705,6 +764,9 @@ export class CotizacionesService {
       fechaEstadoVigente: estado === 'vigente' ? fechaCreacion : undefined,
       fechaEstadoVencida: estado === 'vencida' ? fechaCreacion : undefined,
     };
+    if (fechaVencimiento) {
+      data.fechaVencimiento = fechaVencimiento;
+    }
 
     if (clienteId) {
       data.clienteId = clienteId;
@@ -721,8 +783,11 @@ export class CotizacionesService {
     if (fuente.telefonoContacto) {
       data.telefonoContacto = String(fuente.telefonoContacto);
     }
-    if (fuente.personasAEvaluar) {
-      data.personasAEvaluar = String(fuente.personasAEvaluar);
+    const cargoRepetir = this.trimOrUndef(
+      fuente.cargoContacto != null ? String(fuente.cargoContacto) : undefined,
+    );
+    if (cargoRepetir) {
+      data.cargoContacto = cargoRepetir;
     }
     // Creador = actor JWT del repetir (no clonar de la fuente).
     this.applyCreadorFields(data, actor);
@@ -771,12 +836,7 @@ export class CotizacionesService {
       );
     }
 
-    const fechaVencimiento = new Date((cotizacion as any).fechaVencimiento);
-    if (Number.isNaN(fechaVencimiento.getTime())) {
-      throw new BadRequestException(
-        'La cotización no tiene una vigencia válida',
-      );
-    }
+    const magicExpiresAt = this.resolveMagicExpiresAt(cotizacion as any);
     const folio = (cotizacion as any).folio as string;
     const nombreContacto =
       (cotizacion as any).nombreContacto || 'Cliente';
@@ -795,7 +855,7 @@ export class CotizacionesService {
 
     const magicToken = await this.issueMagicToken(
       cotizacionId,
-      fechaVencimiento,
+      magicExpiresAt,
     );
 
     try {
@@ -809,7 +869,7 @@ export class CotizacionesService {
         emailsCc.length ? emailsCc : undefined,
         {
           emisorNombre,
-          fechaVencimiento,
+          fechaVencimiento: magicExpiresAt,
         },
       );
     } catch (err) {
@@ -892,6 +952,9 @@ export class CotizacionesService {
     const matchConditions: any = { tenantId };
     if (filters?.estado) {
       matchConditions.estado = filters.estado;
+    }
+    if (filters?.clienteId) {
+      matchConditions.clienteId = new Types.ObjectId(filters.clienteId);
     }
     if (filters?.fechaDesde || filters?.fechaHasta) {
       matchConditions.fechaCreacion = {};
@@ -1230,6 +1293,7 @@ export class CotizacionesService {
     const now = new Date();
     const filter: Record<string, unknown> = {
       estado: 'vigente',
+      sinVigencia: { $ne: true },
       fechaVencimiento: { $lt: now },
     };
     if (tenantId) {
@@ -1321,7 +1385,16 @@ export class CotizacionesService {
       );
     }
 
-    if (cotizacion.estado === 'vencida' || cotizacion.fechaVencimiento < now) {
+    if (cotizacion.estado === 'vencida') {
+      throw new BadRequestException(
+        'No se puede responder una cotización vencida',
+      );
+    }
+    if (
+      !cotizacion.sinVigencia &&
+      cotizacion.fechaVencimiento &&
+      cotizacion.fechaVencimiento < now
+    ) {
       throw new BadRequestException(
         'No se puede responder una cotización vencida',
       );
@@ -1351,7 +1424,10 @@ export class CotizacionesService {
         {
           magicToken: token.trim(),
           estado: 'vigente',
-          fechaVencimiento: { $gte: now },
+          $or: [
+            { sinVigencia: true },
+            { fechaVencimiento: { $gte: now } },
+          ],
         },
         {
           $set: update,
@@ -1370,7 +1446,16 @@ export class CotizacionesService {
       if (again.estado === decision) {
         return this.toPublicDto(again, { alreadyResponded: true });
       }
-      if (again.estado === 'vencida' || again.fechaVencimiento < now) {
+      if (again.estado === 'vencida') {
+        throw new BadRequestException(
+          'No se puede responder una cotización vencida',
+        );
+      }
+      if (
+        !again.sinVigencia &&
+        again.fechaVencimiento &&
+        again.fechaVencimiento < now
+      ) {
         throw new BadRequestException(
           'No se puede responder una cotización vencida',
         );
@@ -1538,9 +1623,11 @@ export class CotizacionesService {
       total: Number(c.total) || 0,
       moneda: String(c.moneda || 'MXN'),
       fechaCreacion: toIso(c.fechaCreacion) || new Date(0).toISOString(),
-      fechaVencimiento: toIso(c.fechaVencimiento) || new Date(0).toISOString(),
       items,
     };
+    const fvIso = toIso(c.fechaVencimiento);
+    if (fvIso) dto.fechaVencimiento = fvIso;
+    if (c.sinVigencia) dto.sinVigencia = true;
 
     const fa = toIso(c.fechaAceptacion);
     if (fa) dto.fechaAceptacion = fa;
@@ -1549,7 +1636,8 @@ export class CotizacionesService {
     if (c.nombreEmpresa) dto.nombreEmpresa = String(c.nombreEmpresa);
     if (c.nombreContacto) dto.nombreContacto = String(c.nombreContacto);
     if (c.telefonoContacto) dto.telefonoContacto = String(c.telefonoContacto);
-    if (c.personasAEvaluar) dto.personasAEvaluar = String(c.personasAEvaluar);
+    if (c.emailContacto) dto.emailContacto = String(c.emailContacto);
+    if (c.cargoContacto) dto.cargoContacto = String(c.cargoContacto);
     if (branding) dto.branding = branding;
     if (opts?.alreadyResponded) dto.alreadyResponded = true;
 

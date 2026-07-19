@@ -25,7 +25,7 @@ export class PublicBrandingDto {
   logoUrl?: string;
 }
 
-/** Respuesta acotada para superficie pública (Story 6.9). Sin token/tenant/emails. */
+/** Respuesta acotada para superficie pública (Story 6.9). Sin token/tenant. */
 export class PublicCotizacionResponseDto {
   @ApiProperty()
   folio: string;
@@ -42,8 +42,13 @@ export class PublicCotizacionResponseDto {
   @ApiProperty()
   fechaCreacion: string;
 
-  @ApiProperty()
-  fechaVencimiento: string;
+  @ApiPropertyOptional({
+    description: 'ISO fecha vencimiento; omitido si sinVigencia',
+  })
+  fechaVencimiento?: string;
+
+  @ApiPropertyOptional({ description: 'Cotización sin vigencia (Story 6.15)' })
+  sinVigencia?: boolean;
 
   @ApiPropertyOptional()
   fechaAceptacion?: string;
@@ -60,8 +65,16 @@ export class PublicCotizacionResponseDto {
   @ApiPropertyOptional()
   telefonoContacto?: string;
 
-  @ApiPropertyOptional()
-  personasAEvaluar?: string;
+  @ApiPropertyOptional({
+    description:
+      'Correo del solicitante (snapshot). Story 6.16 — PDF guest celda Correo',
+  })
+  emailContacto?: string;
+
+  @ApiPropertyOptional({
+    description: 'Cargo del solicitante (snapshot). Story 6.16',
+  })
+  cargoContacto?: string;
 
   @ApiProperty({ type: [PublicCotizacionItemDto] })
   items: PublicCotizacionItemDto[];

@@ -59,11 +59,12 @@ export class Cotizacion {
   @Prop()
   telefonoContacto?: string;
 
-  @Prop()
-  personasAEvaluar?: string;
-
   @Prop({ required: false })
   emailContacto?: string;
+
+  /** Snapshot del cargo del solicitante CRM (Story 6.16 — PDF). */
+  @Prop({ required: false })
+  cargoContacto?: string;
 
   /** Destinatarios Para (Story 6.6). Orden = chips. */
   @Prop({ type: [String], default: [] })
@@ -85,8 +86,13 @@ export class Cotizacion {
   @Prop({ required: true })
   fechaCreacion: Date;
 
-  @Prop({ required: true })
-  fechaVencimiento: Date;
+  /** Ausente/null cuando `sinVigencia` (Story 6.15). */
+  @Prop({ required: false, type: Date })
+  fechaVencimiento?: Date;
+
+  /** Story 6.15 — cotización sin fecha de vencimiento (cron no la marca vencida). */
+  @Prop({ default: false })
+  sinVigencia?: boolean;
 
   @Prop({
     type: String,

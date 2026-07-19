@@ -290,6 +290,8 @@ export class TenantConfigService {
 
     if (dto.bancarios === null) {
       $unset.bancarios = 1;
+      // Logo banco solo vive en upload dedicado; al wipe del subdoc limpiar disco
+      this.removeBankLogoFiles(tenantId);
     } else if (dto.bancarios !== undefined) {
       const applyField = (path: string, value: string | null | undefined) => {
         if (value === undefined) return;

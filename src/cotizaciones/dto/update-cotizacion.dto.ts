@@ -19,12 +19,12 @@ export class UpdateCotizacionDto {
   emailContacto?: string;
 
   @ApiPropertyOptional({
-    description: 'Nombre(s) de las personas a evaluar',
-    example: 'Juan Pérez, María López',
+    description: 'Cargo del solicitante (snapshot). Story 6.16',
+    example: 'Gerente de Compras',
   })
   @IsOptional()
   @IsString()
-  personasAEvaluar?: string;
+  cargoContacto?: string;
 
   @ApiPropertyOptional({
     description: 'Estado de la cotización',

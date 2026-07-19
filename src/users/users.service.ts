@@ -331,6 +331,19 @@ export class UsersService implements OnModuleInit {
     return await this.userModel.countDocuments().exec();
   }
 
+  /**
+   * Story 7.3 — operativos activos del tenant (excluye admin_sistema).
+   */
+  async countOperativosByTenant(tenantId: Types.ObjectId): Promise<number> {
+    return this.userModel
+      .countDocuments({
+        rol: Roles.OPERATIVO,
+        tenantId,
+        activo: { $ne: false },
+      })
+      .exec();
+  }
+
   /** Helper para controllers: documento sin passwordHash. */
   sanitize(user: UserDocument) {
     return this.toResponse(user);

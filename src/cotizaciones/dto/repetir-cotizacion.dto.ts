@@ -3,11 +3,13 @@ import { Type } from 'class-transformer';
 import {
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsIn,
   IsMongoId,
   IsOptional,
   IsString,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
@@ -57,10 +59,20 @@ export class RepetirCotizacionDto {
 
   @ApiPropertyOptional({
     description:
-      'Si se omite, vigencia recalculada con vigenciaDefaultDias del tenant',
+      'Si se omite, vigencia recalculada con vigenciaDefaultDias del tenant. No enviar si sinVigencia=true (BE responde 400).',
     example: '2030-12-31T23:59:59.000Z',
   })
+  @ValidateIf((o: RepetirCotizacionDto) => o.sinVigencia !== true)
   @IsOptional()
   @IsDateString()
   fechaVencimiento?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Si true, clona/crea sin fecha de vencimiento. Si se omite, hereda de la fuente. Mutuamente excluyente con fechaVencimiento. Story 6.15',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  sinVigencia?: boolean;
 }

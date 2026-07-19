@@ -192,13 +192,14 @@ export class CreateCotizacionAdminDto {
   telefonoContacto?: string;
 
   @ApiPropertyOptional({
-    description: 'Nombre(s) de las personas a evaluar',
-    example: 'Juan Pérez, María López',
+    description:
+      'Cargo del solicitante (snapshot CRM). Story 6.16 — PDF fila Contacto/Cargo',
+    example: 'Gerente de Compras',
   })
   @IsOptional()
   @Transform(emptyToUndef)
   @IsString()
-  personasAEvaluar?: string;
+  cargoContacto?: string;
 
   @ApiProperty({
     description: 'Items de la cotización',
@@ -222,12 +223,24 @@ export class CreateCotizacionAdminDto {
   moneda?: string;
 
   @ApiPropertyOptional({
-    description: 'Fecha de vencimiento de la cotización (ISO string)',
+    description:
+      'Fecha de vencimiento (ISO). No enviar si sinVigencia=true (BE responde 400).',
     example: '2024-12-31T23:59:59.000Z',
   })
+  @ValidateIf((o: CreateCotizacionAdminDto) => o.sinVigencia !== true)
   @IsOptional()
   @IsDateString()
   fechaVencimiento?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Si true, la cotización no tiene vigencia (no cron a vencida; PDF Vencimiento —). Mutuamente excluyente con fechaVencimiento. Story 6.15',
+    example: false,
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  sinVigencia?: boolean;
 
   @ApiPropertyOptional({
     description:

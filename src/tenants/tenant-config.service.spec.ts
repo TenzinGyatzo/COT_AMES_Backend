@@ -2,7 +2,7 @@ import { Types } from 'mongoose';
 import { BadRequestException } from '@nestjs/common';
 import { TenantConfigService } from './tenant-config.service';
 
-describe('TenantConfigService (Stories 2.1–2.4)', () => {
+describe('TenantConfigService (Stories 2.1–2.5)', () => {
   const tenantId = new Types.ObjectId();
   const otherTenantId = new Types.ObjectId();
 
@@ -249,7 +249,7 @@ describe('TenantConfigService (Stories 2.1–2.4)', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('saveBankLogo setea bancarios.logoUrl (no branding)', async () => {
+  it('saveBankLogo setea bancarios.logoUrl sin pisar branding.logoUrl', async () => {
     const writeSpy = jest
       .spyOn(require('fs'), 'writeFileSync')
       .mockImplementation(() => undefined);
@@ -261,7 +261,10 @@ describe('TenantConfigService (Stories 2.1–2.4)', () => {
       .mockImplementation(() => undefined as any);
 
     try {
-      await service.findOrCreateForTenant(tenantId);
+      const existing = makeDoc(tenantId, {
+        logoUrl: '/uploads/tenant-logos/brand.png',
+      });
+      store.set(String(tenantId), existing);
       const updated = await service.saveBankLogo({
         buffer: Buffer.from('fake'),
         size: 4,
@@ -270,13 +273,39 @@ describe('TenantConfigService (Stories 2.1–2.4)', () => {
       expect(updated.bancarios?.logoUrl).toMatch(
         /\/uploads\/tenant-bank-logos\//,
       );
-      expect(updated.branding?.logoUrl).toBeUndefined();
+      expect(updated.branding?.logoUrl).toBe('/uploads/tenant-logos/brand.png');
       const resp = service.toResponse(updated as any);
       expect(resp.bancarios?.logoUrl).toMatch(/tenant-bank-logos/);
+      expect(resp.branding?.logoUrl).toBe('/uploads/tenant-logos/brand.png');
     } finally {
       writeSpy.mockRestore();
       existsSpy.mockRestore();
       mkdirSpy.mockRestore();
+    }
+  });
+
+  it('updateVigenciaBancarios con bancarios null limpia disco de logo banco', async () => {
+    const doc = makeDoc(tenantId);
+    doc.bancarios = {
+      logoUrl: '/uploads/tenant-bank-logos/x.png',
+      banco: 'BBVA',
+    };
+    store.set(String(tenantId), doc);
+    const existsSpy = jest
+      .spyOn(require('fs'), 'existsSync')
+      .mockReturnValue(true);
+    const unlinkSpy = jest
+      .spyOn(require('fs'), 'unlinkSync')
+      .mockImplementation(() => undefined);
+    try {
+      const updated = await service.updateVigenciaBancarios({
+        bancarios: null as any,
+      });
+      expect(updated.bancarios).toBeUndefined();
+      expect(unlinkSpy).toHaveBeenCalled();
+    } finally {
+      existsSpy.mockRestore();
+      unlinkSpy.mockRestore();
     }
   });
 

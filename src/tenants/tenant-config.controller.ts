@@ -58,7 +58,7 @@ export class TenantConfigController {
   @ApiOperation({
     summary: 'Obtener configuración del tenant activo',
     description:
-      'Roles AMES (operativo + admin_sistema). Si no existe documento, crea shell. Incluye branding, email, vigencia y bancarios (2.2–2.4). Escritura sigue restringida a admin_sistema.',
+      'Roles AMES (operativo + admin_sistema). Si no existe documento, crea shell. Incluye branding, email, vigencia, bancarios y logo banco (2.2–2.5). Escritura sigue restringida a admin_sistema.',
   })
   @ApiResponse({ status: 200, type: TenantConfigResponseDto })
   @ApiResponse({ status: 400, description: 'X-Tenant-Id ausente o ambiguo (admin)' })

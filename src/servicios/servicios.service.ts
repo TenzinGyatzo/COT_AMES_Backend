@@ -204,6 +204,14 @@ export class ServiciosService implements OnModuleInit {
     };
   }
 
+  /** Story 7.3 — dashboard Totales.servicios */
+  async countActive(): Promise<number> {
+    const tenantId = this.tenantContext.getTenantId();
+    return this.servicioModel
+      .countDocuments({ tenantId, activo: { $ne: false } })
+      .exec();
+  }
+
   async findOne(id: string): Promise<Servicio> {
     assertStrictObjectIdOrNotFound(id, 'Servicio');
     const tenantId = this.tenantContext.getTenantId();

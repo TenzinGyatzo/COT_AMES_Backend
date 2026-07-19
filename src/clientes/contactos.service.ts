@@ -265,4 +265,12 @@ export class ContactosService {
     }
     return contacto;
   }
+
+  /** Story 7.3 — dashboard Totales.contactos (tenant-wide, sin N+1). */
+  async countActive(): Promise<number> {
+    const tenantId = this.tenantContext.getTenantId();
+    return this.contactoModel
+      .countDocuments({ tenantId, activo: { $ne: false } })
+      .exec();
+  }
 }

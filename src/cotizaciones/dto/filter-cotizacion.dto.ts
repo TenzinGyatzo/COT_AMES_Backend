@@ -5,6 +5,7 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsMongoId,
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -18,6 +19,15 @@ export class FilterCotizacionDto {
   @IsOptional()
   @IsEnum(['vigente', 'vencida', 'aceptada', 'rechazada'])
   estado?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Filtrar por cliente CRM (ObjectId). Excluye cotizaciones guest sin clienteId.',
+    example: '507f1f77bcf86cd799439011',
+  })
+  @IsOptional()
+  @IsMongoId({ message: 'clienteId debe ser un ObjectId válido' })
+  clienteId?: string;
 
   @ApiPropertyOptional({
     description:
@@ -60,7 +70,7 @@ export class FilterCotizacionDto {
 
   @ApiPropertyOptional({
     description: 'Fecha hasta (ISO string)',
-    example: '2024-12-31T23:59:59.000Z',
+    example: '2024-12-31T23:59:59.999Z',
   })
   @IsOptional()
   @IsDateString()
