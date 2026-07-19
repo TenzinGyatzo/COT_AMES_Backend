@@ -40,13 +40,6 @@ export class CotizacionListItemDto {
   nombreSolicitante?: string;
 
   @ApiProperty({
-    description: 'Sede relacionada a la cotización',
-    example: 'Ciudad de México, CDMX',
-    required: false,
-  })
-  sede?: string;
-
-  @ApiProperty({
     description: 'RFC de la empresa del cliente',
     example: 'ABC123456789',
   })
@@ -77,10 +70,4 @@ export class CotizacionListItemDto {
     example: '2024-01-15T10:30:00.000Z',
   })
   fechaRechazo?: Date;
-
-  @ApiPropertyOptional({
-    description: 'ID de la orden de trabajo relacionada',
-    example: '507f1f77bcf86cd799439011',
-  })
-  ordenTrabajoId?: string;
 }

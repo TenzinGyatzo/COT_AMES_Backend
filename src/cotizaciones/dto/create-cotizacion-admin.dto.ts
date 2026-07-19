@@ -4,15 +4,57 @@ import {
   IsEmail,
   IsArray,
   ArrayMinSize,
+  ArrayMaxSize,
+  ArrayUnique,
   ValidateNested,
   IsOptional,
   IsString,
   IsDateString,
   IsBoolean,
   IsInt,
+  IsIn,
+  IsNumber,
   Min,
+  MaxLength,
+  ValidateIf,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
+import { SeccionPlantillaDto } from '../../plantillas/dto/seccion-plantilla.dto';
+
+function emptyToUndef({ value }: { value: unknown }) {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== 'string') return value;
+  const t = value.trim();
+  return t.length ? t : undefined;
+}
+
+/** Trim + lowercase + dedupe; null/omit → undefined (service trata como []). */
+function normalizeEmailsDto({ value }: { value: unknown }) {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) return value;
+  if (value.some((item) => typeof item !== 'string')) return value;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of value as string[]) {
+    const e = item.trim().toLowerCase();
+    if (!e || seen.has(e)) continue;
+    seen.add(e);
+    out.push(e);
+  }
+  return out;
+}
+
+/** '' / null → undefined so @Type(() => Number) does not coerce to 0. */
+function emptyNumberToUndef({ value }: { value: unknown }) {
+  if (value === null || value === undefined || value === '') return undefined;
+  return value;
+}
+
+/** null → undefined; keep '' so buildItems can omit descripción. */
+function nullDescToUndef({ value }: { value: unknown }) {
+  if (value === null) return undefined;
+  return value;
+}
 
 export class CreateItemCotizacionAdminDto {
   @ApiProperty({
@@ -30,35 +72,113 @@ export class CreateItemCotizacionAdminDto {
   @IsInt()
   @Min(1)
   cantidad: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Override de nombre para el snapshot de esta cotización (Story 6.4)',
+    example: 'Examen médico modificado',
+  })
+  @IsOptional()
+  @Transform(emptyToUndef)
+  @IsString()
+  @MaxLength(200)
+  nombre?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Override de descripción para el snapshot. Si se envía string vacío, el ítem queda sin descripción.',
+    example: 'Descripción ajustada para esta propuesta',
+  })
+  @IsOptional()
+  @Transform(nullDescToUndef)
+  @IsString()
+  @MaxLength(2000)
+  descripcion?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Override de precio unitario (MXN) para el snapshot de esta cotización',
+    example: 1500,
+    minimum: 0,
+  })
+  @IsOptional()
+  @Transform(emptyNumberToUndef)
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  precioUnitario?: number;
 }
 
-export class CreateCotizacionAdminDto {
+/** Ítem de plantilla en create admin (Story 6.5). */
+export class CreatePlantillaCotizacionDto {
   @ApiProperty({
-    description: 'ID de la sede',
+    description: 'ID de la plantilla maestra (activa del tenant)',
     example: '507f1f77bcf86cd799439011',
   })
   @IsMongoId()
-  sedeId: string;
+  plantillaId: string;
 
-  @ApiProperty({
-    description: 'Nombre de la empresa del cliente',
+  @ApiPropertyOptional({
+    description: 'Nombre para el snapshot (default = nombre de la maestra)',
+  })
+  @IsOptional()
+  @Transform(emptyToUndef)
+  @IsString()
+  @MaxLength(200)
+  nombre?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Secciones personalizadas (snapshot). Si se omite, BE copia la maestra activa.',
+    type: [SeccionPlantillaDto],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => SeccionPlantillaDto)
+  secciones?: SeccionPlantillaDto[];
+}
+
+/**
+ * Create flexible (Story 6.2 / FR-20–21): identidad CRM/guest opcional.
+ * FE principal: POST /cotizaciones/admin
+ */
+export class CreateCotizacionAdminDto {
+  @ApiPropertyOptional({
+    description: 'ID del cliente CRM (opcional)',
+    example: '507f1f77bcf86cd799439011',
+  })
+  @IsOptional()
+  @IsMongoId()
+  clienteId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Nombre de la empresa (guest o display)',
     example: 'Empresa ABC S.A. de C.V.',
   })
+  @IsOptional()
+  @Transform(emptyToUndef)
   @IsString()
-  nombreEmpresa: string;
+  nombreEmpresa?: string;
 
-  @ApiProperty({
-    description: 'Nombre del contacto',
+  @ApiPropertyOptional({
+    description:
+      'Nombre del solicitante (snapshot). Obligatorio solo si se designa solicitante (p. ej. con correo/teléfono)',
     example: 'Juan Pérez',
   })
+  @IsOptional()
+  @Transform(emptyToUndef)
   @IsString()
-  nombreContacto: string;
+  nombreContacto?: string;
 
   @ApiPropertyOptional({
     description: 'Correo electrónico del contacto',
     example: 'contacto@empresa.com',
   })
   @IsOptional()
+  @Transform(emptyToUndef)
+  @ValidateIf((_, v) => v !== undefined && v !== null && v !== '')
   @IsEmail()
   emailContacto?: string;
 
@@ -67,6 +187,7 @@ export class CreateCotizacionAdminDto {
     example: '+52 662 123 4567',
   })
   @IsOptional()
+  @Transform(emptyToUndef)
   @IsString()
   telefonoContacto?: string;
 
@@ -75,6 +196,7 @@ export class CreateCotizacionAdminDto {
     example: 'Juan Pérez, María López',
   })
   @IsOptional()
+  @Transform(emptyToUndef)
   @IsString()
   personasAEvaluar?: string;
 
@@ -90,12 +212,13 @@ export class CreateCotizacionAdminDto {
   items: CreateItemCotizacionAdminDto[];
 
   @ApiPropertyOptional({
-    description: 'Moneda de la cotización',
+    description: 'Moneda de la cotización (solo MXN)',
     example: 'MXN',
     default: 'MXN',
   })
   @IsOptional()
-  @IsString()
+  @Transform(emptyToUndef)
+  @IsIn(['MXN'])
   moneda?: string;
 
   @ApiPropertyOptional({
@@ -118,6 +241,32 @@ export class CreateCotizacionAdminDto {
 
   @ApiPropertyOptional({
     description:
+      'Destinatarios Para (orden = chips). Vacío/omitido = ninguno. Story 6.6',
+    type: [String],
+    example: ['contacto@empresa.com'],
+  })
+  @IsOptional()
+  @Transform(normalizeEmailsDto)
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsEmail({}, { each: true, message: 'Cada correo en Para debe ser válido' })
+  emailsPara?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'Destinatarios CC (orden = chips). Vacío/omitido = ninguno. Story 6.6',
+    type: [String],
+    example: ['cc@empresa.com'],
+  })
+  @IsOptional()
+  @Transform(normalizeEmailsDto)
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsEmail({}, { each: true, message: 'Cada correo en CC debe ser válido' })
+  emailsCc?: string[];
+
+  @ApiPropertyOptional({
+    description:
       'Indica si el PDF de la cotización debe incluir una segunda página con datos bancarios',
     example: false,
     default: false,
@@ -125,4 +274,16 @@ export class CreateCotizacionAdminDto {
   @IsOptional()
   @IsBoolean()
   incluirDatosBancarios?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Plantillas a aplicar (orden = páginas tras el cuerpo). Vacío/omitido = ninguna. Story 6.5',
+    type: [CreatePlantillaCotizacionDto],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique((o: CreatePlantillaCotizacionDto) => o.plantillaId)
+  @ValidateNested({ each: true })
+  @Type(() => CreatePlantillaCotizacionDto)
+  plantillas?: CreatePlantillaCotizacionDto[];
 }

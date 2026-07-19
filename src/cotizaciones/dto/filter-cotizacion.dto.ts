@@ -1,7 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsOptional,
-  IsMongoId,
   IsString,
   IsDateString,
   IsEnum,
@@ -21,16 +20,9 @@ export class FilterCotizacionDto {
   estado?: string;
 
   @ApiPropertyOptional({
-    description: 'Filtrar por ID de sede',
-    example: '507f1f77bcf86cd799439011',
-  })
-  @IsOptional()
-  @IsMongoId()
-  sedeId?: string;
-
-  @ApiPropertyOptional({
-    description: 'Búsqueda por empresa o RFC del cliente',
-    example: 'Empresa ABC',
+    description:
+      'Búsqueda por folio, empresa, solicitante, RFC o correo (case-insensitive)',
+    example: 'COT-2026-0001',
   })
   @IsOptional()
   @IsString()

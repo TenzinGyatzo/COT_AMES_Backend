@@ -14,19 +14,6 @@ export class ServiceMetricDto {
   nombreServicio: string;
 
   @ApiProperty({
-    description: 'ID de la sede',
-    example: '507f1f77bcf86cd799439011',
-  })
-  sedeId: string;
-
-  @ApiProperty({
-    description: 'Clave de la sede',
-    example: 'MEX-001',
-    required: false,
-  })
-  claveSede?: string;
-
-  @ApiProperty({
     description: 'Precio unitario del servicio',
     example: 1500.0,
   })

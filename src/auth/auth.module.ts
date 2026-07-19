@@ -5,9 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
-import { AuthClienteController } from './auth-cliente.controller';
 import { UsersModule } from '../users/users.module';
-import { ClientesModule } from '../clientes/clientes.module';
 import { EmailsModule } from '../emails/emails.module';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -20,7 +18,6 @@ import {
 @Module({
   imports: [
     UsersModule,
-    ClientesModule,
     EmailsModule,
     PassportModule,
     MongooseModule.forFeature([
@@ -37,7 +34,7 @@ import {
       inject: [ConfigService],
     }),
   ],
-  controllers: [AuthController, AuthClienteController],
+  controllers: [AuthController],
   providers: [AuthService, LocalStrategy, JwtStrategy, PasswordResetService],
   exports: [AuthService, PasswordResetService],
 })

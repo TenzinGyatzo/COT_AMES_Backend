@@ -5,20 +5,31 @@ export type ClienteDocument = Cliente & Document;
 
 @Schema({ timestamps: true })
 export class Cliente {
-  @Prop({ unique: true, index: true, sparse: true })
-  clave?: string;
+  @Prop({ type: Types.ObjectId, ref: 'Tenant', required: true, index: true })
+  tenantId: Types.ObjectId;
 
   @Prop({ required: true })
   empresa: string;
 
-  @Prop({ required: true, unique: true, index: true })
-  rfc: string;
-
-  @Prop({ type: Types.ObjectId, ref: 'Sede' })
-  sedeId?: Types.ObjectId;
+  /** Opcional (FR-10). Único por tenant cuando existe. */
+  @Prop()
+  rfc?: string;
 
   @Prop({ default: true })
   activo: boolean;
 }
 
 export const ClienteSchema = SchemaFactory.createForClass(Cliente);
+
+ClienteSchema.index({ tenantId: 1, empresa: 1 });
+ClienteSchema.index(
+  { tenantId: 1, rfc: 1 },
+  {
+    unique: true,
+    // Solo activos: permite reutilizar RFC tras soft-delete (Story 3.2 / review 3.1)
+    partialFilterExpression: {
+      rfc: { $type: 'string', $gt: '' },
+      activo: true,
+    },
+  },
+);

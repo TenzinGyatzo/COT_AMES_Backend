@@ -1,27 +1,21 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ClientesService } from './clientes.service';
 import { ClientesController } from './clientes.controller';
-import { ClientePortalController } from './cliente-portal.controller';
+import { ContactosService } from './contactos.service';
+import { ContactosController } from './contactos.controller';
 import { Cliente, ClienteSchema } from './schemas/cliente.schema';
-import {
-  UsuarioCliente,
-  UsuarioClienteSchema,
-} from './schemas/usuario-cliente.schema';
-import { SedesModule } from '../sedes/sedes.module';
-import { CotizacionesModule } from '../cotizaciones/cotizaciones.module';
+import { Contacto, ContactoSchema } from './schemas/contacto.schema';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: Cliente.name, schema: ClienteSchema },
-      { name: UsuarioCliente.name, schema: UsuarioClienteSchema },
+      { name: Contacto.name, schema: ContactoSchema },
     ]),
-    SedesModule,
-    forwardRef(() => CotizacionesModule),
   ],
-  controllers: [ClientesController, ClientePortalController],
-  providers: [ClientesService],
-  exports: [ClientesService],
+  controllers: [ClientesController, ContactosController],
+  providers: [ClientesService, ContactosService],
+  exports: [ClientesService, ContactosService],
 })
 export class ClientesModule {}

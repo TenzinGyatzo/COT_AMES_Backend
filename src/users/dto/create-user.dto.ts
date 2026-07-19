@@ -4,14 +4,16 @@ import {
   IsEmail,
   IsOptional,
   IsEnum,
+  IsMongoId,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { Roles } from '../../auth/enums/roles.enum';
 
 export class CreateUserDto {
   @ApiProperty({
     description: 'Correo electrónico del usuario',
-    example: 'admin@ejemplo.com',
+    example: 'operativo@ames.mx',
   })
   @IsEmail()
   email: string;
@@ -32,12 +34,18 @@ export class CreateUserDto {
   @IsString()
   nombre: string;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     description: 'Rol del usuario',
     enum: Roles,
-    default: Roles.ADMIN,
+    example: Roles.OPERATIVO,
   })
-  @IsOptional()
   @IsEnum(Roles)
-  rol?: string;
+  rol: string;
+
+  @ApiPropertyOptional({
+    description: 'Tenant asignado (obligatorio si rol=operativo)',
+  })
+  @ValidateIf((o) => o.rol === Roles.OPERATIVO)
+  @IsMongoId({ message: 'tenantId debe ser un ObjectId válido' })
+  tenantId?: string;
 }

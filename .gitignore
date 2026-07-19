@@ -28,6 +28,9 @@ lerna-debug.log*
 .temp
 .tmp
 
+# Uploads de tenant (logos, etc.)
+/uploads
+
 # Testing
 coverage
 *.lcov

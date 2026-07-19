@@ -32,10 +32,4 @@ export class ClientMetricDto {
     example: 5,
   })
   totalCotizaciones: number;
-
-  @ApiProperty({
-    description: 'Total de órdenes de trabajo del cliente',
-    example: 3,
-  })
-  totalOrdenesTrabajo: number;
 }

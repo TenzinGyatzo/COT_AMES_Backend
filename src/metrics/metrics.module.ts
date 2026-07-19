@@ -6,15 +6,11 @@ import {
   Cotizacion,
   CotizacionSchema,
 } from '../cotizaciones/schemas/cotizacion.schema';
-import { Cliente, ClienteSchema } from '../clientes/schemas/cliente.schema';
-import { Servicio, ServicioSchema } from '../servicios/schemas/servicio.schema';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: Cotizacion.name, schema: CotizacionSchema },
-      { name: Cliente.name, schema: ClienteSchema },
-      { name: Servicio.name, schema: ServicioSchema },
     ]),
   ],
   controllers: [MetricsController],

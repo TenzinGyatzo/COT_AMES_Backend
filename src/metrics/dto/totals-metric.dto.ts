@@ -21,13 +21,6 @@ export class ClienteSolicitanteDto {
   rfc: string;
 
   @ApiProperty({
-    description: 'Nombre del usuario cliente con más cotizaciones',
-    example: 'Juan Pérez',
-    required: false,
-  })
-  nombreUsuarioCliente?: string;
-
-  @ApiProperty({
     description: 'Total de cotizaciones',
     example: 10,
   })
@@ -48,17 +41,10 @@ export class ServicioSolicitadoDto {
   nombreServicio: string;
 
   @ApiProperty({
-    description: 'Clave de la sede del servicio',
-    example: 'MEX-001',
-    required: false,
-  })
-  claveSede?: string;
-
-  @ApiProperty({
     description: 'Número de veces contratado (desde cotizaciones aceptadas)',
     example: 25,
   })
-  vecesSolicitado: number; // Mantenemos el nombre por compatibilidad con el frontend
+  vecesSolicitado: number;
 }
 
 export class ServicioRentableDto {
@@ -73,13 +59,6 @@ export class ServicioRentableDto {
     example: 'Servicio de Consultoría',
   })
   nombreServicio: string;
-
-  @ApiProperty({
-    description: 'Clave de la sede del servicio',
-    example: 'MEX-001',
-    required: false,
-  })
-  claveSede?: string;
 
   @ApiProperty({
     description: 'Ingresos totales generados por el servicio',
@@ -136,13 +115,35 @@ export class TotalsMetricDto {
   cotizacionesAnio: number;
 
   @ApiProperty({
-    description: 'Número total de cotizaciones (sin filtro de año)',
+    description:
+      'Número total de cotizaciones en el alcance del filtro (= cotizacionesEmitidas)',
     example: 500,
   })
   cotizacionesTotales: number;
 
+  /** Alias de emitidas = count del match de periodo (todas las cotizaciones del filtro). Story 7.1 / FR-43. */
   @ApiProperty({
-    description: 'Tasa de conversión (cotizaciones aceptadas / totales)',
+    description:
+      'Cotizaciones emitidas en el alcance del filtro (= cotizacionesTotales del match)',
+    example: 500,
+  })
+  cotizacionesEmitidas: number;
+
+  @ApiProperty({
+    description: 'Cotizaciones en estado aceptada (mismo match de periodo)',
+    example: 175,
+  })
+  cotizacionesAceptadas: number;
+
+  @ApiProperty({
+    description: 'Cotizaciones en estado rechazada (mismo match de periodo)',
+    example: 40,
+  })
+  cotizacionesRechazadas: number;
+
+  @ApiProperty({
+    description:
+      'Tasa de conversión = aceptadas / emitidas (0 si emitidas = 0)',
     example: 0.35,
   })
   tasaConversion: number;

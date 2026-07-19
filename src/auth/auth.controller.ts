@@ -7,7 +7,6 @@ import {
   HttpCode,
   HttpStatus,
   ForbiddenException,
-  Request,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -41,9 +40,9 @@ export class AuthController {
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
-    summary: 'Registrar un nuevo usuario',
+    summary: 'Bootstrap: registrar el primer administrador de sistema',
     description:
-      'Permite crear el primer usuario administrador si no existe ninguno en la base de datos. Si ya existe al menos un usuario, solo permite registro si hay un usuario autenticado con rol admin.',
+      'Solo cuando aún no hay usuarios (count=0). Tras el bootstrap, use POST /api/users (Story 1.6).',
   })
   @ApiResponse({
     status: 201,
@@ -54,33 +53,23 @@ export class AuthController {
   @ApiResponse({ status: 409, description: 'El email ya está registrado' })
   @ApiResponse({
     status: 403,
-    description: 'No autorizado para crear usuarios',
+    description: 'Ya existen usuarios; use POST /api/users',
   })
-  async register(@Body() registerDto: RegisterDto, @Request() req: any) {
+  async register(@Body() registerDto: RegisterDto) {
     const userCount = await this.usersService.count();
 
-    // Si no hay usuarios, permitir crear el primer admin
     if (userCount === 0) {
       const user = await this.usersService.create({
-        ...registerDto,
-        rol: Roles.ADMIN,
+        email: registerDto.email,
+        password: registerDto.password,
+        nombre: registerDto.nombre,
+        rol: Roles.ADMIN_SISTEMA,
       });
-      const { passwordHash, ...result } = user.toObject();
-      return result;
+      return this.usersService.sanitize(user);
     }
 
-    // Si ya hay usuarios, verificar si hay un usuario autenticado con rol admin
-    // El usuario puede estar en req.user si pasó por JwtAuthGuard (opcional)
-    const currentUser = req.user;
-    if (currentUser && currentUser.rol === Roles.ADMIN) {
-      const user = await this.usersService.create(registerDto);
-      const { passwordHash, ...result } = user.toObject();
-      return result;
-    }
-
-    // Si no hay usuario autenticado o no es admin, denegar
     throw new ForbiddenException(
-      'Solo un administrador autenticado puede crear nuevos usuarios',
+      'Ya existen usuarios. Use POST /api/users (administrador de sistema autenticado).',
     );
   }
 
@@ -172,7 +161,6 @@ export class AuthController {
     const valid = await this.passwordResetService.validateToken(
       dto.email,
       dto.token,
-      'admin',
     );
     return { valid };
   }

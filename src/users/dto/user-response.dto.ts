@@ -1,4 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Roles } from '../../auth/enums/roles.enum';
 
 export class UserResponseDto {
   @ApiProperty({ description: 'ID del usuario' })
@@ -10,8 +11,11 @@ export class UserResponseDto {
   @ApiProperty({ description: 'Nombre completo del usuario' })
   nombre: string;
 
-  @ApiProperty({ description: 'Rol del usuario', enum: ['admin'] })
+  @ApiProperty({ description: 'Rol del usuario', enum: Roles })
   rol: string;
+
+  @ApiPropertyOptional({ description: 'Tenant asignado (operativo)' })
+  tenantId?: string;
 
   @ApiProperty({ description: 'Indica si el usuario está activo' })
   activo: boolean;

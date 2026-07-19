@@ -5,13 +5,15 @@ import {
   IsOptional,
   IsEnum,
   IsBoolean,
+  IsMongoId,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
+import { Roles } from '../../auth/enums/roles.enum';
 
 export class UpdateUserDto {
   @ApiPropertyOptional({
     description: 'Correo electrónico del usuario',
-    example: 'admin@ejemplo.com',
   })
   @IsOptional()
   @IsEmail()
@@ -19,7 +21,6 @@ export class UpdateUserDto {
 
   @ApiPropertyOptional({
     description: 'Nueva contraseña del usuario',
-    example: 'newpassword123',
     minLength: 6,
   })
   @IsOptional()
@@ -29,7 +30,6 @@ export class UpdateUserDto {
 
   @ApiPropertyOptional({
     description: 'Nombre completo del usuario',
-    example: 'Juan Pérez',
   })
   @IsOptional()
   @IsString()
@@ -37,11 +37,20 @@ export class UpdateUserDto {
 
   @ApiPropertyOptional({
     description: 'Rol del usuario',
-    enum: ['admin'],
+    enum: Roles,
   })
   @IsOptional()
-  @IsEnum(['admin'])
+  @IsEnum(Roles)
   rol?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Tenant asignado (obligatorio si el rol efectivo es operativo)',
+  })
+  @IsOptional()
+  @ValidateIf((o) => o.tenantId !== null && o.tenantId !== undefined)
+  @IsMongoId()
+  tenantId?: string | null;
 
   @ApiPropertyOptional({
     description: 'Indica si el usuario está activo',

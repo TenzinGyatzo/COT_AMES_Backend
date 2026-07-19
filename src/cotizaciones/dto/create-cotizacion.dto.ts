@@ -21,13 +21,6 @@ export class CreateCotizacionDto {
   clienteId: string;
 
   @ApiProperty({
-    description: 'ID de la sede',
-    example: '507f1f77bcf86cd799439011',
-  })
-  @IsMongoId()
-  sedeId: string;
-
-  @ApiProperty({
     description: 'Correo electrónico de contacto para la cotización',
     example: 'cliente@ejemplo.com',
   })

@@ -4,7 +4,6 @@ import {
   ExecutionContext,
   ForbiddenException,
 } from '@nestjs/common';
-import { TipoUsuario } from '../enums/tipo-usuario.enum';
 import { Roles } from '../enums/roles.enum';
 
 @Injectable()
@@ -16,12 +15,12 @@ export class AdminGuard implements CanActivate {
       throw new ForbiddenException('No autorizado');
     }
 
-    if (user.tipoUsuario === TipoUsuario.ADMIN && user.rol === Roles.ADMIN) {
+    if (user.rol === Roles.ADMIN_SISTEMA) {
       return true;
     }
 
     throw new ForbiddenException(
-      'Solo administradores pueden acceder a este recurso',
+      'Solo el administrador de sistema puede acceder a este recurso',
     );
   }
 }

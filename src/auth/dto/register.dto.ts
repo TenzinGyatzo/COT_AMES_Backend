@@ -35,7 +35,7 @@ export class RegisterDto {
   @ApiPropertyOptional({
     description: 'Rol del usuario',
     enum: Roles,
-    default: Roles.ADMIN,
+    default: Roles.ADMIN_SISTEMA,
   })
   @IsOptional()
   @IsEnum(Roles)

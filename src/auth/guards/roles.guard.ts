@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
-import { TipoUsuario } from '../enums/tipo-usuario.enum';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -27,16 +26,6 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('No autorizado');
     }
 
-    // Validar tipo de usuario
-    if (requiredRoles.includes('admin')) {
-      if (user.tipoUsuario !== TipoUsuario.ADMIN) {
-        throw new ForbiddenException(
-          'Solo administradores pueden acceder a este recurso',
-        );
-      }
-    }
-
-    // Validar rol
     const hasRole = requiredRoles.some((role) => user.rol === role);
     if (!hasRole) {
       throw new ForbiddenException('No tiene el rol necesario');

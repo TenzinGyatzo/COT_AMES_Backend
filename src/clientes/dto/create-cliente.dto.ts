@@ -1,50 +1,39 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsString,
-  IsEmail,
-  IsOptional,
-  IsMongoId,
-  IsBoolean,
-  ValidateIf,
-} from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+
+function trimString({ value }: { value: unknown }) {
+  if (typeof value !== 'string') return value;
+  return value.trim();
+}
+
+/** Trim + uppercase; null → '' para permitir limpiar en PATCH. */
+function nullOrTrimUpperRfc({ value }: { value: unknown }) {
+  if (value === null) return '';
+  if (typeof value !== 'string') return value;
+  return value.trim().toUpperCase();
+}
 
 export class CreateClienteDto {
   @ApiProperty({
     description: 'Nombre de la empresa del cliente',
     example: 'Empresa ABC S.A. de C.V.',
   })
+  @Transform(trimString)
   @IsString()
+  @IsNotEmpty({ message: 'Debe proporcionar el nombre de la empresa' })
+  @MaxLength(200)
   empresa: string;
 
-  @ApiProperty({
-    description: 'RFC de la empresa',
+  @ApiPropertyOptional({
+    description: 'RFC de la empresa (opcional; único por tenant entre activos)',
     example: 'ABC123456789',
   })
+  @IsOptional()
+  @Transform(nullOrTrimUpperRfc)
   @IsString()
-  rfc: string;
+  @MaxLength(20)
+  rfc?: string | null;
 
-  @ApiPropertyOptional({
-    description: 'ID de la sede principal asociada al cliente',
-    example: '507f1f77bcf86cd799439011',
-  })
-  @IsOptional()
-  @IsMongoId()
-  sedeId?: string;
-
-  @ApiPropertyOptional({
-    description: 'Indica si el cliente está activo',
-    default: true,
-  })
-  @IsOptional()
-  @IsBoolean()
-  activo?: boolean;
-
-  @ApiPropertyOptional({
-    description:
-      'Clave única del cliente. Si no se proporciona, se generará automáticamente.',
-    example: 'A1B2C3D4',
-  })
-  @IsOptional()
-  @IsString()
-  clave?: string;
+  // `activo` no se acepta en create/update de 3.1 (soft-delete → 3.2).
 }

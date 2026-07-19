@@ -11,7 +11,8 @@ export class PasswordResetToken {
   @Prop({ required: true })
   tokenHash: string;
 
-  @Prop({ required: true, enum: ['admin', 'cliente'] })
+  /** Discriminator de tokens AMES (legacy string; no es rol JWT). */
+  @Prop({ required: true, enum: ['admin'] })
   userType: string;
 
   @Prop({ required: true, index: true })
