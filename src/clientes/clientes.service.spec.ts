@@ -121,6 +121,82 @@ describe('ClientesService (Stories 3.1–3.2)', () => {
     expect(created.activo).toBe(true);
   });
 
+  it('create persiste razonSocial trimmeada', async () => {
+    const created = await service.create({
+      empresa: 'Acme',
+      razonSocial: '  Servicios Industriales del Pacífico  ',
+    });
+    expect(created.razonSocial).toBe('Servicios Industriales del Pacífico');
+    expect(clienteModel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        empresa: 'Acme',
+        razonSocial: 'Servicios Industriales del Pacífico',
+      }),
+    );
+  });
+
+  it('create omite razonSocial vacía', async () => {
+    await service.create({ empresa: 'Acme', razonSocial: '   ' });
+    expect(clienteModel).toHaveBeenCalledWith(
+      expect.not.objectContaining({ razonSocial: expect.anything() }),
+    );
+  });
+
+  it('findAll filtra por razonSocial con regex escapado', async () => {
+    const execFind = jest.fn().mockResolvedValue([]);
+    const limit = jest.fn().mockReturnValue({ exec: execFind });
+    const skip = jest.fn().mockReturnValue({ limit });
+    const sort = jest.fn().mockReturnValue({ skip });
+    clienteModel.find.mockReturnValue({ sort });
+    clienteModel.countDocuments.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(0),
+    });
+
+    await service.findAll({ razonSocial: 'Pacífico (SA)' });
+
+    expect(clienteModel.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        razonSocial: { $regex: 'Pacífico \\(SA\\)', $options: 'i' },
+      }),
+    );
+  });
+
+  it('update setea razonSocial', async () => {
+    const id = new Types.ObjectId().toString();
+    const updated = {
+      _id: id,
+      empresa: 'Acme',
+      razonSocial: 'Nueva RS',
+      tenantId,
+    };
+    clienteModel.findOneAndUpdate.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(updated),
+    });
+
+    const res = await service.update(id, { razonSocial: '  Nueva RS  ' });
+    expect(res.razonSocial).toBe('Nueva RS');
+    expect(clienteModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: id, tenantId },
+      { $set: { razonSocial: 'Nueva RS' } },
+      { new: true },
+    );
+  });
+
+  it('update vacía razonSocial → $unset', async () => {
+    const id = new Types.ObjectId().toString();
+    const updated = { _id: id, empresa: 'Acme', tenantId };
+    clienteModel.findOneAndUpdate.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(updated),
+    });
+
+    await service.update(id, { razonSocial: '   ' });
+    expect(clienteModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: id, tenantId },
+      { $unset: { razonSocial: 1 } },
+      { new: true },
+    );
+  });
+
   it('create RFC duplicado → ConflictException', async () => {
     clienteModel.mockImplementationOnce((data: any) => ({
       ...data,

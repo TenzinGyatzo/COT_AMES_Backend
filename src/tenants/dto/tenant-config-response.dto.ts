@@ -24,6 +24,11 @@ export class TenantBrandingDto {
 }
 
 export class TenantBancariosDto {
+  @ApiPropertyOptional({
+    description: 'Logo del banco (Story 2.5); distinto de branding.logoUrl',
+  })
+  logoUrl?: string;
+
   @ApiPropertyOptional()
   titular?: string;
 

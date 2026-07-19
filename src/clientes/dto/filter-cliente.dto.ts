@@ -8,15 +8,24 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { parseOptionalQueryBoolean } from '../../common/parse-optional-query-boolean';
 
 export class FilterClienteDto {
   @ApiPropertyOptional({
-    description: 'Filtrar por nombre de empresa',
+    description: 'Filtrar por nombre de empresa (nombre comercial)',
     example: 'Empresa ABC',
   })
   @IsOptional()
   @IsString()
   empresa?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filtrar por razón social',
+    example: 'Servicios Industriales',
+  })
+  @IsOptional()
+  @IsString()
+  razonSocial?: string;
 
   @ApiPropertyOptional({
     description: 'Filtrar por RFC',
@@ -31,19 +40,7 @@ export class FilterClienteDto {
       'Filtrar por activo. Omitido = solo activos (default AD-10). true/false explícito.',
   })
   @IsOptional()
-  @Transform(({ value }) => {
-    if (value === undefined || value === null || value === '') {
-      return undefined;
-    }
-    if (typeof value === 'string') {
-      const v = value.trim().toLowerCase();
-      if (v === 'true') return true;
-      if (v === 'false') return false;
-      return value; // inválido → @IsBoolean falla 400
-    }
-    if (value === true || value === false) return value;
-    return value;
-  })
+  @Transform(parseOptionalQueryBoolean)
   @IsBoolean()
   activo?: boolean;
 

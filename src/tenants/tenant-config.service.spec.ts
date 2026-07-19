@@ -249,6 +249,82 @@ describe('TenantConfigService (Stories 2.1–2.4)', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('saveBankLogo setea bancarios.logoUrl (no branding)', async () => {
+    const writeSpy = jest
+      .spyOn(require('fs'), 'writeFileSync')
+      .mockImplementation(() => undefined);
+    const existsSpy = jest
+      .spyOn(require('fs'), 'existsSync')
+      .mockReturnValue(false);
+    const mkdirSpy = jest
+      .spyOn(require('fs'), 'mkdirSync')
+      .mockImplementation(() => undefined as any);
+
+    try {
+      await service.findOrCreateForTenant(tenantId);
+      const updated = await service.saveBankLogo({
+        buffer: Buffer.from('fake'),
+        size: 4,
+        mimetype: 'image/png',
+      } as any);
+      expect(updated.bancarios?.logoUrl).toMatch(
+        /\/uploads\/tenant-bank-logos\//,
+      );
+      expect(updated.branding?.logoUrl).toBeUndefined();
+      const resp = service.toResponse(updated as any);
+      expect(resp.bancarios?.logoUrl).toMatch(/tenant-bank-logos/);
+    } finally {
+      writeSpy.mockRestore();
+      existsSpy.mockRestore();
+      mkdirSpy.mockRestore();
+    }
+  });
+
+  it('saveBankLogo rechaza mime inválido', async () => {
+    await expect(
+      service.saveBankLogo({
+        buffer: Buffer.from('x'),
+        size: 10,
+        mimetype: 'text/plain',
+      } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('clearBankLogo limpia bancarios.logoUrl', async () => {
+    const doc = makeDoc(tenantId);
+    doc.bancarios = {
+      logoUrl: '/uploads/tenant-bank-logos/x.png',
+      banco: 'BBVA',
+    };
+    store.set(String(tenantId), doc);
+    const existsSpy = jest
+      .spyOn(require('fs'), 'existsSync')
+      .mockReturnValue(false);
+    try {
+      const updated = await service.clearBankLogo();
+      expect(updated.bancarios?.logoUrl).toBeUndefined();
+      expect(updated.bancarios?.banco).toBe('BBVA');
+    } finally {
+      existsSpy.mockRestore();
+    }
+  });
+
+  it('updateVigenciaBancarios no borra logoUrl al guardar textos', async () => {
+    const doc = makeDoc(tenantId);
+    doc.bancarios = {
+      logoUrl: '/uploads/tenant-bank-logos/x.png',
+      banco: 'Old',
+    };
+    store.set(String(tenantId), doc);
+    const updated = await service.updateVigenciaBancarios({
+      bancarios: { banco: 'Nuevo' },
+    });
+    expect(updated.bancarios?.banco).toBe('Nuevo');
+    expect(updated.bancarios?.logoUrl).toBe(
+      '/uploads/tenant-bank-logos/x.png',
+    );
+  });
+
   it('updateEmailConfig guarda remitente y lista scoped al tenant', async () => {
     await service.findOrCreateForTenant(tenantId);
     const updated = await service.updateEmailConfig({

@@ -32,6 +32,10 @@ export const TenantBrandingSchema = SchemaFactory.createForClass(TenantBranding)
 
 @Schema({ _id: false })
 export class TenantBancarios {
+  /** Path público, p.ej. `/uploads/tenant-bank-logos/{tenantId}.png` — ≠ branding.logoUrl */
+  @Prop()
+  logoUrl?: string;
+
   @Prop()
   titular?: string;
 
@@ -58,7 +62,7 @@ export const TenantBancariosSchema = SchemaFactory.createForClass(TenantBancario
 
 /**
  * Configuración por tenant.
- * Branding: 2.2. Remitente/notificaciones: 2.3. Vigencia/bancarios: 2.4.
+ * Branding: 2.2. Remitente/notificaciones: 2.3. Vigencia/bancarios: 2.4. Logo banco: 2.5.
  */
 @Schema({ timestamps: true, collection: 'tenant_configs' })
 export class TenantConfig {

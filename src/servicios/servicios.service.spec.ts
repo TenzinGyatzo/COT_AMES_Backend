@@ -1,4 +1,9 @@
-import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  NotFoundException,
+  BadRequestException,
+  ValidationPipe,
+} from '@nestjs/common';
 import { Types } from 'mongoose';
 import { validateSync } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
@@ -8,6 +13,14 @@ import { TenantsService } from '../tenants/tenants.service';
 import { CategoriaServicio } from './enums/categoria-servicio.enum';
 import { CreateServicioDto } from './dto/create-servicio.dto';
 import { FilterServicioDto } from './dto/filter-servicio.dto';
+
+const queryPipe = () =>
+  new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+    transformOptions: { enableImplicitConversion: true },
+  });
 
 describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
   const tenantId = new Types.ObjectId();
@@ -119,6 +132,31 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
     const dto = plainToInstance(FilterServicioDto, { activo: 'true' });
     expect(dto.activo).toBe(true);
     expect(validateSync(dto)).toHaveLength(0);
+  });
+
+  it('FilterServicioDto ValidationPipe: activo=false no se convierte a true (Story 4.5)', async () => {
+    const dto = (await queryPipe().transform(
+      { activo: 'false', page: '1', limit: '20' },
+      { type: 'query', metatype: FilterServicioDto, data: '' },
+    )) as FilterServicioDto;
+    expect(dto.activo).toBe(false);
+  });
+
+  it('FilterServicioDto ValidationPipe: omitido → undefined', async () => {
+    const dto = (await queryPipe().transform(
+      { page: '1' },
+      { type: 'query', metatype: FilterServicioDto, data: '' },
+    )) as FilterServicioDto;
+    expect(dto.activo).toBeUndefined();
+  });
+
+  it('FilterServicioDto ValidationPipe: objeto anidado → 400', async () => {
+    await expect(
+      queryPipe().transform(
+        { activo: { foo: 'false' } },
+        { type: 'query', metatype: FilterServicioDto, data: '' },
+      ),
+    ).rejects.toBeTruthy();
   });
 
   it('update cambia campos, fuerza MXN y $unset descripción vacía', async () => {

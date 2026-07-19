@@ -8,6 +8,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { parseOptionalQueryBoolean } from '../../common/parse-optional-query-boolean';
 
 export class FilterContactoDto {
   @ApiPropertyOptional({
@@ -22,19 +23,7 @@ export class FilterContactoDto {
       'Filtrar por activo. Omitido = solo activos. true/false explícito.',
   })
   @IsOptional()
-  @Transform(({ value }) => {
-    if (value === undefined || value === null || value === '') {
-      return undefined;
-    }
-    if (typeof value === 'string') {
-      const v = value.trim().toLowerCase();
-      if (v === 'true') return true;
-      if (v === 'false') return false;
-      return value;
-    }
-    if (value === true || value === false) return value;
-    return value;
-  })
+  @Transform(parseOptionalQueryBoolean)
   @IsBoolean()
   activo?: boolean;
 

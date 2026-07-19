@@ -11,6 +11,10 @@ export class Cliente {
   @Prop({ required: true })
   empresa: string;
 
+  /** Opcional — razón social fiscal; el nombre comercial en UI es `empresa`. */
+  @Prop()
+  razonSocial?: string;
+
   /** Opcional (FR-10). Único por tenant cuando existe. */
   @Prop()
   rfc?: string;

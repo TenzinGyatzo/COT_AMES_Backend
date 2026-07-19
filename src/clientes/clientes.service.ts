@@ -44,6 +44,15 @@ export class ClientesService {
     return t || undefined;
   }
 
+  private normalizeOptionalText(
+    value: string | null | undefined,
+  ): string | undefined {
+    if (value === undefined) return undefined;
+    if (value === null || value === '') return undefined;
+    const t = typeof value === 'string' ? value.trim() : '';
+    return t || undefined;
+  }
+
   async create(createClienteDto: CreateClienteDto): Promise<Cliente> {
     const empresa = (createClienteDto.empresa || '').trim();
     if (!empresa) {
@@ -54,11 +63,15 @@ export class ClientesService {
 
     const tenantId = this.tenantContext.getTenantId();
     const rfc = this.normalizeRfc(createClienteDto.rfc);
+    const razonSocial = this.normalizeOptionalText(
+      createClienteDto.razonSocial,
+    );
 
     try {
       const cliente = new this.clienteModel({
         tenantId,
         empresa,
+        ...(razonSocial ? { razonSocial } : {}),
         ...(rfc ? { rfc } : {}),
         activo: true,
       });
@@ -101,6 +114,13 @@ export class ClientesService {
     if (filters?.empresa?.trim()) {
       matchConditions.empresa = {
         $regex: this.escapeRegex(filters.empresa.trim()),
+        $options: 'i',
+      };
+    }
+
+    if (filters?.razonSocial?.trim()) {
+      matchConditions.razonSocial = {
+        $regex: this.escapeRegex(filters.razonSocial.trim()),
         $options: 'i',
       };
     }
@@ -161,6 +181,17 @@ export class ClientesService {
         );
       }
       $set.empresa = empresa;
+    }
+
+    if (updateClienteDto.razonSocial !== undefined) {
+      const razonSocial = this.normalizeOptionalText(
+        updateClienteDto.razonSocial,
+      );
+      if (razonSocial) {
+        $set.razonSocial = razonSocial;
+      } else {
+        $unset.razonSocial = 1;
+      }
     }
 
     if (updateClienteDto.rfc !== undefined) {

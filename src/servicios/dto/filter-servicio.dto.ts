@@ -13,6 +13,7 @@ import {
   CategoriaServicio,
   CATEGORIA_SERVICIO_VALUES,
 } from '../enums/categoria-servicio.enum';
+import { parseOptionalQueryBoolean } from '../../common/parse-optional-query-boolean';
 
 export class FilterServicioDto {
   @ApiPropertyOptional({
@@ -40,19 +41,7 @@ export class FilterServicioDto {
     example: true,
   })
   @IsOptional()
-  @Transform(({ value }) => {
-    if (value === undefined || value === null || value === '') {
-      return undefined;
-    }
-    if (typeof value === 'string') {
-      const v = value.trim().toLowerCase();
-      if (v === 'true') return true;
-      if (v === 'false') return false;
-      return value; // inválido → @IsBoolean falla 400
-    }
-    if (value === true || value === false) return value;
-    return value;
-  })
+  @Transform(parseOptionalQueryBoolean)
   @IsBoolean()
   activo?: boolean;
 

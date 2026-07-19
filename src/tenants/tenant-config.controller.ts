@@ -161,4 +161,49 @@ export class TenantConfigController {
     const doc = await this.tenantConfigService.clearLogo();
     return this.tenantConfigService.toResponse(doc);
   }
+
+  @Post('bancarios/logo')
+  @UseGuards(AdminGuard)
+  @ApiOperation({
+    summary: 'Subir o reemplazar logo del banco (Story 2.5)',
+    description:
+      'No pisa branding.logoUrl. Solo admin_sistema. PNG/JPEG/WebP ≤1MB.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiResponse({ status: 200, type: TenantConfigResponseDto })
+  @ApiResponse({ status: 400, description: 'Archivo inválido / tamaño / mime' })
+  @ApiResponse({ status: 403, description: 'No admin / tenant inválido' })
+  @UseFilters(MulterBadRequestFilter)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 1_000_000 },
+    }),
+  )
+  async uploadBankLogo(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('Archivo de logo requerido');
+    }
+    const doc = await this.tenantConfigService.saveBankLogo(file);
+    return this.tenantConfigService.toResponse(doc);
+  }
+
+  @Delete('bancarios/logo')
+  @UseGuards(AdminGuard)
+  @ApiOperation({ summary: 'Eliminar logo del banco del tenant activo' })
+  @ApiResponse({ status: 200, type: TenantConfigResponseDto })
+  @ApiResponse({ status: 403, description: 'No admin / tenant inválido' })
+  async deleteBankLogo() {
+    const doc = await this.tenantConfigService.clearBankLogo();
+    return this.tenantConfigService.toResponse(doc);
+  }
 }

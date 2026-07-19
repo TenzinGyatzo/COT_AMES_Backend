@@ -16,6 +16,7 @@ import { UpdateTenantEmailDto } from './dto/update-tenant-email.dto';
 import { UpdateTenantVigenciaBancariosDto } from './dto/update-tenant-vigencia-bancarios.dto';
 
 const LOGO_DIR = join(process.cwd(), 'uploads', 'tenant-logos');
+const BANK_LOGO_DIR = join(process.cwd(), 'uploads', 'tenant-bank-logos');
 const MAX_LOGO_BYTES = 1_000_000;
 const LOGO_EXTS = ['.png', '.jpg', '.jpeg', '.webp'] as const;
 const ALLOWED_MIME: Record<string, string> = {
@@ -48,8 +49,18 @@ export class TenantConfigService {
     }
   }
 
+  private ensureBankLogoDir() {
+    if (!existsSync(BANK_LOGO_DIR)) {
+      mkdirSync(BANK_LOGO_DIR, { recursive: true });
+    }
+  }
+
   private logoPublicUrl(tenantId: Types.ObjectId, ext: string): string {
     return `/uploads/tenant-logos/${String(tenantId)}${ext}`;
+  }
+
+  private bankLogoPublicUrl(tenantId: Types.ObjectId, ext: string): string {
+    return `/uploads/tenant-bank-logos/${String(tenantId)}${ext}`;
   }
 
   /** Normaliza mime: lowercase + sin parámetros (p.ej. `; charset=binary`). */
@@ -73,6 +84,40 @@ export class TenantConfigService {
         }
       }
     }
+  }
+
+  private removeBankLogoFiles(
+    tenantId: Types.ObjectId,
+    keepExt?: string,
+  ) {
+    for (const ext of LOGO_EXTS) {
+      if (keepExt && ext === keepExt) continue;
+      const p = join(BANK_LOGO_DIR, `${String(tenantId)}${ext}`);
+      if (existsSync(p)) {
+        try {
+          unlinkSync(p);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+
+  private assertValidLogoFile(file: Express.Multer.File): string {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Archivo de logo requerido');
+    }
+    if (file.size > MAX_LOGO_BYTES) {
+      throw new BadRequestException('El logo no puede superar 1MB');
+    }
+    const mime = this.normalizeMime(file.mimetype);
+    const ext = ALLOWED_MIME[mime];
+    if (!ext) {
+      throw new BadRequestException(
+        'Tipo de imagen no permitido (use PNG, JPEG o WebP)',
+      );
+    }
+    return ext;
   }
 
   /** Upsert atómico: shell vacío si no existe (evita TOCTOU). */
@@ -285,20 +330,7 @@ export class TenantConfigService {
   async saveLogo(
     file: Express.Multer.File,
   ): Promise<TenantConfigDocument> {
-    if (!file?.buffer?.length) {
-      throw new BadRequestException('Archivo de logo requerido');
-    }
-    if (file.size > MAX_LOGO_BYTES) {
-      throw new BadRequestException('El logo no puede superar 1MB');
-    }
-    const mime = this.normalizeMime(file.mimetype);
-    const ext = ALLOWED_MIME[mime];
-    if (!ext) {
-      throw new BadRequestException(
-        'Tipo de imagen no permitido (use PNG, JPEG o WebP)',
-      );
-    }
-
+    const ext = this.assertValidLogoFile(file);
     const tenantId = this.tenantContext.getTenantId();
     await this.findOrCreateForTenant(tenantId);
     this.ensureLogoDir();
@@ -310,7 +342,6 @@ export class TenantConfigService {
       throw new BadRequestException('No se pudo escribir el logo en disco');
     }
 
-    // Borrar otras extensiones solo tras escritura OK (misma ext se sobrescribe)
     this.removeLogoFiles(tenantId, ext);
 
     const logoUrl = this.logoPublicUrl(tenantId, ext);
@@ -359,6 +390,71 @@ export class TenantConfigService {
     return updated;
   }
 
+  async saveBankLogo(
+    file: Express.Multer.File,
+  ): Promise<TenantConfigDocument> {
+    const ext = this.assertValidLogoFile(file);
+    const tenantId = this.tenantContext.getTenantId();
+    await this.findOrCreateForTenant(tenantId);
+    this.ensureBankLogoDir();
+
+    const dest = join(BANK_LOGO_DIR, `${String(tenantId)}${ext}`);
+    try {
+      writeFileSync(dest, file.buffer);
+    } catch {
+      throw new BadRequestException(
+        'No se pudo escribir el logo del banco en disco',
+      );
+    }
+
+    this.removeBankLogoFiles(tenantId, ext);
+
+    const logoUrl = this.bankLogoPublicUrl(tenantId, ext);
+    try {
+      const updated = await this.tenantConfigModel
+        .findOneAndUpdate(
+          { tenantId },
+          { $set: { 'bancarios.logoUrl': logoUrl } },
+          { new: true },
+        )
+        .exec();
+      if (!updated) {
+        try {
+          unlinkSync(dest);
+        } catch {
+          /* ignore */
+        }
+        throw new BadRequestException('No se pudo guardar el logo del banco');
+      }
+      return updated;
+    } catch (err) {
+      if (err instanceof BadRequestException) throw err;
+      try {
+        unlinkSync(dest);
+      } catch {
+        /* ignore */
+      }
+      throw err;
+    }
+  }
+
+  async clearBankLogo(): Promise<TenantConfigDocument> {
+    const tenantId = this.tenantContext.getTenantId();
+    await this.findOrCreateForTenant(tenantId);
+    const updated = await this.tenantConfigModel
+      .findOneAndUpdate(
+        { tenantId },
+        { $unset: { 'bancarios.logoUrl': 1 } },
+        { new: true },
+      )
+      .exec();
+    if (!updated) {
+      throw new BadRequestException('No se pudo eliminar el logo del banco');
+    }
+    this.removeBankLogoFiles(tenantId);
+    return updated;
+  }
+
   toResponse(doc: TenantConfigDocument) {
     const obj = doc.toObject ? doc.toObject() : (doc as any);
     const branding = obj.branding || {};
@@ -384,6 +480,7 @@ export class TenantConfigService {
           ? obj.vigenciaDefaultDias
           : 30,
       bancarios: {
+        logoUrl: bancarios.logoUrl || undefined,
         titular: bancarios.titular || undefined,
         banco: bancarios.banco || undefined,
         cuenta: bancarios.cuenta || undefined,

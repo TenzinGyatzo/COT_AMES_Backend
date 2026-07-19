@@ -16,14 +16,24 @@ function nullOrTrimUpperRfc({ value }: { value: unknown }) {
 
 export class CreateClienteDto {
   @ApiProperty({
-    description: 'Nombre de la empresa del cliente',
-    example: 'Empresa ABC S.A. de C.V.',
+    description: 'Nombre comercial de la empresa (obligatorio)',
+    example: 'Acme Industrial',
   })
   @Transform(trimString)
   @IsString()
   @IsNotEmpty({ message: 'Debe proporcionar el nombre de la empresa' })
   @MaxLength(200)
   empresa: string;
+
+  @ApiPropertyOptional({
+    description: 'Razón social (opcional)',
+    example: 'Servicios Industriales del Pacífico S.A. de C.V.',
+  })
+  @IsOptional()
+  @Transform(trimString)
+  @IsString()
+  @MaxLength(300)
+  razonSocial?: string | null;
 
   @ApiPropertyOptional({
     description: 'RFC de la empresa (opcional; único por tenant entre activos)',

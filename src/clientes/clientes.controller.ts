@@ -60,9 +60,10 @@ export class ClientesController {
   @ApiOperation({
     summary: 'Listar clientes paginados (Story 3.2)',
     description:
-      'Default: solo activos. activo=false para inactivos. Búsqueda por empresa/RFC.',
+      'Default: solo activos. activo=false para inactivos. Búsqueda por empresa/razón social/RFC.',
   })
   @ApiQuery({ name: 'empresa', required: false, type: String })
+  @ApiQuery({ name: 'razonSocial', required: false, type: String })
   @ApiQuery({ name: 'rfc', required: false, type: String })
   @ApiQuery({ name: 'activo', required: false, type: Boolean })
   @ApiQuery({ name: 'page', required: false, type: Number })
