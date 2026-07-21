@@ -35,6 +35,7 @@ import { Roles as RolesDecorator } from '../auth/decorators/roles.decorator';
 import { TenantContextGuard } from '../tenants/tenant-context.guard';
 import { TenantContextInterceptor } from '../tenants/tenant-context.interceptor';
 import { CATEGORIA_SERVICIO_VALUES } from './enums/categoria-servicio.enum';
+import { SERVICIO_ORDEN_VALUES } from './enums/servicio-orden.enum';
 
 @ApiTags('servicios')
 @Controller('servicios')
@@ -92,6 +93,13 @@ export class ServiciosController {
   @ApiQuery({ name: 'activo', required: false, type: Boolean })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({
+    name: 'orden',
+    required: false,
+    enum: SERVICIO_ORDEN_VALUES,
+    description:
+      'Orden de listado: creacion (default), nombre_asc, nombre_desc',
+  })
   @ApiResponse({
     status: 200,
     description: 'Lista paginada de servicios',

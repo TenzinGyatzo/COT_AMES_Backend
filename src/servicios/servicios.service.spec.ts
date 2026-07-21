@@ -13,6 +13,7 @@ import { TenantsService } from '../tenants/tenants.service';
 import { CategoriaServicio } from './enums/categoria-servicio.enum';
 import { CreateServicioDto } from './dto/create-servicio.dto';
 import { FilterServicioDto } from './dto/filter-servicio.dto';
+import { ServicioOrden } from './enums/servicio-orden.enum';
 
 const queryPipe = () =>
   new ValidationPipe({
@@ -239,11 +240,42 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
       tenantId,
       activo: { $ne: false },
     });
+    expect(sort).toHaveBeenCalledWith({ createdAt: 1, _id: 1 });
     expect(res.data).toHaveLength(1);
     expect(res.total).toBe(1);
     expect(res.page).toBe(1);
     expect(res.limit).toBe(20);
     expect(res.totalPages).toBe(1);
+  });
+
+  it('findAll orden nombre_asc usa sort alfabético ascendente', async () => {
+    const execFind = jest.fn().mockResolvedValue([]);
+    const limit = jest.fn().mockReturnValue({ exec: execFind });
+    const skip = jest.fn().mockReturnValue({ limit });
+    const sort = jest.fn().mockReturnValue({ skip });
+    servicioModel.find.mockReturnValue({ sort });
+    servicioModel.countDocuments.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(0),
+    });
+
+    await service.findAll({ orden: ServicioOrden.NOMBRE_ASC });
+
+    expect(sort).toHaveBeenCalledWith({ nombre: 1 });
+  });
+
+  it('findAll orden nombre_desc usa sort alfabético descendente', async () => {
+    const execFind = jest.fn().mockResolvedValue([]);
+    const limit = jest.fn().mockReturnValue({ exec: execFind });
+    const skip = jest.fn().mockReturnValue({ limit });
+    const sort = jest.fn().mockReturnValue({ skip });
+    servicioModel.find.mockReturnValue({ sort });
+    servicioModel.countDocuments.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(0),
+    });
+
+    await service.findAll({ orden: ServicioOrden.NOMBRE_DESC });
+
+    expect(sort).toHaveBeenCalledWith({ nombre: -1 });
   });
 
   it('findAll({ activo: false }) solo inactivos', async () => {

@@ -14,6 +14,10 @@ import {
   CATEGORIA_SERVICIO_VALUES,
 } from '../enums/categoria-servicio.enum';
 import { parseOptionalQueryBoolean } from '../../common/parse-optional-query-boolean';
+import {
+  ServicioOrden,
+  SERVICIO_ORDEN_VALUES,
+} from '../enums/servicio-orden.enum';
 
 export class FilterServicioDto {
   @ApiPropertyOptional({
@@ -62,4 +66,16 @@ export class FilterServicioDto {
   @Min(1)
   @Max(100)
   limit?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Orden de listado. creacion = más antiguos primero (default). nombre_asc / nombre_desc = alfabético.',
+    enum: SERVICIO_ORDEN_VALUES,
+    default: ServicioOrden.CREACION,
+  })
+  @IsOptional()
+  @IsEnum(ServicioOrden, {
+    message: `orden debe ser una de: ${SERVICIO_ORDEN_VALUES.join(', ')}`,
+  })
+  orden?: ServicioOrden;
 }

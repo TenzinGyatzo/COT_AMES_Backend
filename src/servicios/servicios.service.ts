@@ -21,6 +21,7 @@ import {
   isStrictObjectId,
 } from '../common/strict-object-id';
 import { CategoriaServicio } from './enums/categoria-servicio.enum';
+import { ServicioOrden } from './enums/servicio-orden.enum';
 
 @Injectable()
 export class ServiciosService implements OnModuleInit {
@@ -34,6 +35,20 @@ export class ServiciosService implements OnModuleInit {
 
   private escapeRegex(term: string): string {
     return term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  private buildSort(
+    orden?: ServicioOrden,
+  ): Record<string, 1 | -1> {
+    switch (orden) {
+      case ServicioOrden.NOMBRE_ASC:
+        return { nombre: 1 };
+      case ServicioOrden.NOMBRE_DESC:
+        return { nombre: -1 };
+      case ServicioOrden.CREACION:
+      default:
+        return { createdAt: 1, _id: 1 };
+    }
   }
 
   private buildDocPayload(
@@ -188,7 +203,7 @@ export class ServiciosService implements OnModuleInit {
     const [data, total] = await Promise.all([
       this.servicioModel
         .find(matchConditions)
-        .sort({ nombre: 1 })
+        .sort(this.buildSort(filters?.orden))
         .skip((page - 1) * limit)
         .limit(limit)
         .exec(),
