@@ -803,8 +803,9 @@ export class CotizacionesService {
   }
 
   /**
-   * Story 6.8 — envía cotización con PDF generado en FE (multipart).
+   * Story 6.8 / 6.17 — envía cotización con PDF generado en FE (multipart).
    * Emite magic token (TTL = vigencia); propaga errores SMTP; unset token si falla.
+   * Usado tras create (wizard) y al reenviar desde el detalle.
    */
   async enviarCorreoConPdf(
     id: string,

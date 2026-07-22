@@ -135,9 +135,9 @@ export class CotizacionesController {
       'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
   })
   @ApiOperation({
-    summary: 'Enviar cotización por correo con PDF del frontend (Story 6.8)',
+    summary: 'Enviar cotización por correo con PDF del frontend (Story 6.8 / 6.17)',
     description:
-      'Multipart: PDF generado en FE + opcional overrides emailsPara/emailsCc (JSON). Emite magic link; no persiste el PDF.',
+      'Multipart: PDF generado en FE + opcional overrides emailsPara/emailsCc (JSON). Emite magic link; no persiste el PDF. Sirve al crear (wizard) y al reenviar desde el detalle de una cotización ya creada.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
