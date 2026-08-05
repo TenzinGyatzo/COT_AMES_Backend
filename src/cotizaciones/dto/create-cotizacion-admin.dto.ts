@@ -290,6 +290,16 @@ export class CreateCotizacionAdminDto {
 
   @ApiPropertyOptional({
     description:
+      'Si true, el PDF incluye la columna de descripción de servicios (default false)',
+    example: false,
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  incluirDescripciones?: boolean;
+
+  @ApiPropertyOptional({
+    description:
       'Plantillas a aplicar (orden = páginas tras el cuerpo). Vacío/omitido = ninguna. Story 6.5',
     type: [CreatePlantillaCotizacionDto],
   })

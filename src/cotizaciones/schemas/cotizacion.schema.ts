@@ -161,6 +161,10 @@ export class Cotizacion {
   @Prop({ default: false })
   incluirDatosBancarios?: boolean;
 
+  /** Si false, el PDF omite la columna de descripción (default false). */
+  @Prop({ default: false })
+  incluirDescripciones?: boolean;
+
   /** Plantillas aplicadas (deep copy). Vacío/omitido = sin páginas de plantilla. */
   @Prop({ type: [Object], default: [] })
   plantillasSnapshot?: PlantillaSnapshot[];
