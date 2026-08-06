@@ -122,9 +122,7 @@ describe('EmailsService.sendAdminQuotationEmail (Story 6.8)', () => {
     );
 
     const html = sendEmail.mock.calls[0][2] as string;
-    expect(html).toContain(
-      'http://localhost:5173/cotizacion-publica/deadbeef',
-    );
+    expect(html).toContain('http://localhost:5173/cotizacion-publica/deadbeef');
     expect(html).not.toContain('undefined/cotizacion-publica');
     expect(html).not.toContain('//cotizacion-publica');
 

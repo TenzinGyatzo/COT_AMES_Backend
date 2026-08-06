@@ -28,7 +28,8 @@ export class TenantBranding {
   sitioWeb?: string;
 }
 
-export const TenantBrandingSchema = SchemaFactory.createForClass(TenantBranding);
+export const TenantBrandingSchema =
+  SchemaFactory.createForClass(TenantBranding);
 
 @Schema({ _id: false })
 export class TenantBancarios {
@@ -58,7 +59,8 @@ export class TenantBancarios {
   email?: string;
 }
 
-export const TenantBancariosSchema = SchemaFactory.createForClass(TenantBancarios);
+export const TenantBancariosSchema =
+  SchemaFactory.createForClass(TenantBancarios);
 
 /**
  * Configuración por tenant.

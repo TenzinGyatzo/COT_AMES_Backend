@@ -2,7 +2,9 @@ import { PasswordResetService } from './password-reset.service';
 
 describe('PasswordResetService.createResetTokenForAdmin', () => {
   const tokenModel = {
-    deleteMany: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue({}) }),
+    deleteMany: jest
+      .fn()
+      .mockReturnValue({ exec: jest.fn().mockResolvedValue({}) }),
     create: jest.fn().mockResolvedValue({}),
   };
   const emailsService = {
@@ -156,7 +158,11 @@ describe('PasswordResetService.resetPasswordForAdmin', () => {
     });
 
     await expect(
-      service.resetPasswordForAdmin('off@ames.test', 'a'.repeat(64), 'password1'),
+      service.resetPasswordForAdmin(
+        'off@ames.test',
+        'a'.repeat(64),
+        'password1',
+      ),
     ).rejects.toThrow('Token inválido, expirado o ya utilizado');
 
     expect(usersService.update).not.toHaveBeenCalled();
@@ -169,7 +175,11 @@ describe('PasswordResetService.resetPasswordForAdmin', () => {
     usersService.findByEmail.mockResolvedValue(null);
 
     await expect(
-      service.resetPasswordForAdmin('gone@ames.test', 'a'.repeat(64), 'password1'),
+      service.resetPasswordForAdmin(
+        'gone@ames.test',
+        'a'.repeat(64),
+        'password1',
+      ),
     ).rejects.toThrow('Token inválido, expirado o ya utilizado');
 
     expect(usersService.update).not.toHaveBeenCalled();

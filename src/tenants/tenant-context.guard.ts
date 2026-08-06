@@ -38,9 +38,7 @@ export class TenantContextGuard implements CanActivate {
 
     if (user.rol === Roles.OPERATIVO) {
       if (!user.tenantId) {
-        throw new ForbiddenException(
-          'Usuario operativo sin tenant asignado',
-        );
+        throw new ForbiddenException('Usuario operativo sin tenant asignado');
       }
       req.effectiveTenantId = this.toObjectId(user.tenantId);
       return true;

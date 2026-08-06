@@ -75,10 +75,7 @@ describe('UsersService.countOperativosByTenant (Story 7.3)', () => {
       exec: jest.fn().mockResolvedValue(4),
     });
     const { UsersService } = await import('../users/users.service');
-    const service = new UsersService(
-      { countDocuments } as any,
-      {} as any,
-    );
+    const service = new UsersService({ countDocuments } as any, {} as any);
     const n = await service.countOperativosByTenant(tenantId);
     expect(n).toBe(4);
     expect(countDocuments).toHaveBeenCalledWith({

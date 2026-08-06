@@ -1,7 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { Roles } from '../auth/enums/roles.enum';
 import { TenantContextGuard } from './tenant-context.guard';

@@ -52,7 +52,10 @@ export class ContactosController {
   @ApiOperation({ summary: 'Crear contacto de un cliente (Story 3.3)' })
   @ApiParam({ name: 'clienteId', description: 'ID del cliente' })
   @ApiResponse({ status: 201, description: 'Contacto creado' })
-  @ApiResponse({ status: 400, description: 'Datos inválidos o cliente inactivo' })
+  @ApiResponse({
+    status: 400,
+    description: 'Datos inválidos o cliente inactivo',
+  })
   @ApiResponse({ status: 404, description: 'Cliente no encontrado' })
   create(
     @Param('clienteId') clienteId: string,
@@ -87,10 +90,7 @@ export class ContactosController {
   @ApiParam({ name: 'id', description: 'ID del contacto' })
   @ApiResponse({ status: 200, description: 'Contacto encontrado' })
   @ApiResponse({ status: 404, description: 'No encontrado' })
-  findOne(
-    @Param('clienteId') clienteId: string,
-    @Param('id') id: string,
-  ) {
+  findOne(@Param('clienteId') clienteId: string, @Param('id') id: string) {
     return this.contactosService.findOne(clienteId, id);
   }
 
@@ -114,10 +114,7 @@ export class ContactosController {
   @ApiParam({ name: 'id', description: 'ID del contacto' })
   @ApiResponse({ status: 200, description: 'Estado invertido' })
   @ApiResponse({ status: 404, description: 'No encontrado' })
-  toggleActivo(
-    @Param('clienteId') clienteId: string,
-    @Param('id') id: string,
-  ) {
+  toggleActivo(@Param('clienteId') clienteId: string, @Param('id') id: string) {
     return this.contactosService.toggleActivo(clienteId, id);
   }
 
@@ -128,10 +125,7 @@ export class ContactosController {
   @ApiParam({ name: 'id', description: 'ID del contacto' })
   @ApiResponse({ status: 200, description: 'Contacto desactivado' })
   @ApiResponse({ status: 404, description: 'No encontrado' })
-  remove(
-    @Param('clienteId') clienteId: string,
-    @Param('id') id: string,
-  ) {
+  remove(@Param('clienteId') clienteId: string, @Param('id') id: string) {
     return this.contactosService.remove(clienteId, id);
   }
 }

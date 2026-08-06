@@ -156,9 +156,7 @@ describe('CountersService (Story 6.1 / AD-9)', () => {
   });
 
   it('carrera upsert: ignora E11000 y $max alinea seq bajo del peer', async () => {
-    cotizacionFolios = [
-      { tenantId: tenantA, folio: `COT-${year}-0005` },
-    ];
+    cotizacionFolios = [{ tenantId: tenantA, folio: `COT-${year}-0005` }];
     // Peer insertó entre findOne y upsert con seq stale (2 < max brownfield 5)
     counterModel.findOne = jest.fn((filter: any) => ({
       select: () => ({

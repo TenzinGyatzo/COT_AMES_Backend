@@ -86,7 +86,9 @@ export class EmailsService {
   ): Promise<void> {
     let magicLink: string | null = null;
     if (magicToken) {
-      const frontendUrl = this.configService.get<string>('FRONTEND_URL')?.trim();
+      const frontendUrl = this.configService
+        .get<string>('FRONTEND_URL')
+        ?.trim();
       if (!frontendUrl) {
         this.logger.error(
           'FRONTEND_URL is not configured; cannot build magic link for quotation email',
@@ -191,7 +193,9 @@ export class EmailsService {
       .map((e) => (typeof e === 'string' ? e.trim().toLowerCase() : ''))
       .filter((e) => e && isEmail(e));
     if (to.length === 0) {
-      throw new Error('sendInternalDecisionNotification requiere al menos un destinatario');
+      throw new Error(
+        'sendInternalDecisionNotification requiere al menos un destinatario',
+      );
     }
     const safeFolio = this.escapeHtml(params.folio || '');
     const decisionLabel =

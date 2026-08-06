@@ -131,24 +131,23 @@ describe('PlantillasService (Story 5.1 + 5.2)', () => {
     },
   }));
 
-  plantillaModel.findOne = jest.fn((q: { _id: string; tenantId: Types.ObjectId }) => ({
-    exec: async () => {
-      const doc = byId.get(String(q._id));
-      if (
-        !doc ||
-        doc.tenantId.toString() !== q.tenantId.toString()
-      ) {
-        return null;
-      }
-      return {
-        ...doc,
-        save: jest.fn().mockImplementation(async function (this: any) {
-          indexDoc({ ...this });
-          return this;
-        }),
-      };
-    },
-  }));
+  plantillaModel.findOne = jest.fn(
+    (q: { _id: string; tenantId: Types.ObjectId }) => ({
+      exec: async () => {
+        const doc = byId.get(String(q._id));
+        if (!doc || doc.tenantId.toString() !== q.tenantId.toString()) {
+          return null;
+        }
+        return {
+          ...doc,
+          save: jest.fn().mockImplementation(async function (this: any) {
+            indexDoc({ ...this });
+            return this;
+          }),
+        };
+      },
+    }),
+  );
 
   const tenantsService = {
     ensureSeeded: jest.fn().mockResolvedValue([tenantQro, tenantLm]),
@@ -203,9 +202,9 @@ describe('PlantillasService (Story 5.1 + 5.2)', () => {
       expect(d.activo).not.toBe(false);
       expect(d.isSystem).toBeUndefined();
       expect(d.secciones?.length).toBeGreaterThan(0);
-      expect(
-        [CLAVE_SEED_COMERCIALES, CLAVE_SEED_ADMINISTRATIVOS],
-      ).toContain(d.claveSeed);
+      expect([CLAVE_SEED_COMERCIALES, CLAVE_SEED_ADMINISTRATIVOS]).toContain(
+        d.claveSeed,
+      );
     }
   });
 

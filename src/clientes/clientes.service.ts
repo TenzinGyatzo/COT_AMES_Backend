@@ -35,9 +35,7 @@ export class ClientesService {
     return term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
-  private normalizeRfc(
-    rfc: string | null | undefined,
-  ): string | undefined {
+  private normalizeRfc(rfc: string | null | undefined): string | undefined {
     if (rfc === undefined) return undefined;
     if (rfc === null || rfc === '') return undefined;
     const t = rfc.trim().toUpperCase();

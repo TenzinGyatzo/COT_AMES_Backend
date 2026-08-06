@@ -1,7 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-} from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs';
@@ -69,10 +66,7 @@ export class TenantConfigService {
     return raw.split(';')[0].trim().toLowerCase();
   }
 
-  private removeLogoFiles(
-    tenantId: Types.ObjectId,
-    keepExt?: string,
-  ) {
+  private removeLogoFiles(tenantId: Types.ObjectId, keepExt?: string) {
     for (const ext of LOGO_EXTS) {
       if (keepExt && ext === keepExt) continue;
       const p = join(LOGO_DIR, `${String(tenantId)}${ext}`);
@@ -86,10 +80,7 @@ export class TenantConfigService {
     }
   }
 
-  private removeBankLogoFiles(
-    tenantId: Types.ObjectId,
-    keepExt?: string,
-  ) {
+  private removeBankLogoFiles(tenantId: Types.ObjectId, keepExt?: string) {
     for (const ext of LOGO_EXTS) {
       if (keepExt && ext === keepExt) continue;
       const p = join(BANK_LOGO_DIR, `${String(tenantId)}${ext}`);
@@ -128,7 +119,15 @@ export class TenantConfigService {
       const doc = await this.tenantConfigModel
         .findOneAndUpdate(
           { tenantId },
-          { $setOnInsert: { tenantId, branding: {}, correosNotificacion: [], vigenciaDefaultDias: 30, bancarios: {} } },
+          {
+            $setOnInsert: {
+              tenantId,
+              branding: {},
+              correosNotificacion: [],
+              vigenciaDefaultDias: 30,
+              bancarios: {},
+            },
+          },
           { upsert: true, new: true },
         )
         .exec();
@@ -270,7 +269,9 @@ export class TenantConfigService {
       .findOneAndUpdate({ tenantId }, update, { new: true })
       .exec();
     if (!updated) {
-      throw new BadRequestException('No se pudo actualizar configuración de email');
+      throw new BadRequestException(
+        'No se pudo actualizar configuración de email',
+      );
     }
     return updated;
   }
@@ -329,9 +330,7 @@ export class TenantConfigService {
     return updated;
   }
 
-  async saveLogo(
-    file: Express.Multer.File,
-  ): Promise<TenantConfigDocument> {
+  async saveLogo(file: Express.Multer.File): Promise<TenantConfigDocument> {
     const ext = this.assertValidLogoFile(file);
     const tenantId = this.tenantContext.getTenantId();
     await this.findOrCreateForTenant(tenantId);
@@ -392,9 +391,7 @@ export class TenantConfigService {
     return updated;
   }
 
-  async saveBankLogo(
-    file: Express.Multer.File,
-  ): Promise<TenantConfigDocument> {
+  async saveBankLogo(file: Express.Multer.File): Promise<TenantConfigDocument> {
     const ext = this.assertValidLogoFile(file);
     const tenantId = this.tenantContext.getTenantId();
     await this.findOrCreateForTenant(tenantId);

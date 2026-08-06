@@ -15,7 +15,11 @@ describe('UsersService (Story 1.6)', () => {
     findById: jest.fn(),
     findByIdAndUpdate: jest.fn(),
     countDocuments: jest.fn(),
-    updateMany: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue({ modifiedCount: 0 }) }),
+    updateMany: jest
+      .fn()
+      .mockReturnValue({
+        exec: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
+      }),
   };
 
   const tenantsService = {
@@ -28,7 +32,9 @@ describe('UsersService (Story 1.6)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     service = new UsersService(userModel as any, tenantsService as any);
-    userModel.findOne.mockReturnValue({ exec: jest.fn().mockResolvedValue(null) });
+    userModel.findOne.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(null),
+    });
   });
 
   it('create operativo sin tenantId → BadRequest', async () => {

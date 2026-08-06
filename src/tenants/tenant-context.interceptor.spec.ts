@@ -17,9 +17,9 @@ describe('TenantContextInterceptor', () => {
 
   it('sin effectiveTenantId: ForbiddenException', () => {
     const next = { handle: () => from([null]) };
-    expect(() =>
-      interceptor.intercept(makeCtx({}), next as any),
-    ).toThrow(ForbiddenException);
+    expect(() => interceptor.intercept(makeCtx({}), next as any)).toThrow(
+      ForbiddenException,
+    );
   });
 
   it('propaga ALS a handler async (getTenantId disponible)', async () => {

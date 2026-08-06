@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   HttpException,
   NotFoundException,
   UnauthorizedException,
@@ -209,10 +210,7 @@ describe('CotizacionesService.buildItems — servicio inactivo (Story 4.2)', () 
     });
 
     await expect(
-      (service as any).buildItems(
-        [{ servicioId, cantidad: 1 }],
-        tenantId,
-      ),
+      (service as any).buildItems([{ servicioId, cantidad: 1 }], tenantId),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(serviciosService.findOne).toHaveBeenCalledWith(servicioId);
@@ -787,9 +785,7 @@ describe('CotizacionesService.createAdminCotizacion flexible (Story 6.2)', () =>
     jest.spyOn(service, 'findOne').mockResolvedValue(savedDoc as any);
   });
 
-  const baseItems = [
-    { servicioId: servicioId.toString(), cantidad: 1 },
-  ];
+  const baseItems = [{ servicioId: servicioId.toString(), cantidad: 1 }];
 
   it('crea sin identidad (vacío total) con ítem y folio', async () => {
     const result = await service.createAdminCotizacion({
@@ -991,9 +987,7 @@ describe('CotizacionesService.findAll search escape (Story 6.3)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    aggregateExec.mockResolvedValue([
-      { data: [], totalCount: [{ count: 0 }] },
-    ]);
+    aggregateExec.mockResolvedValue([{ data: [], totalCount: [{ count: 0 }] }]);
     service = new CotizacionesService(
       cotizacionModel as any,
       {} as any,
@@ -1046,9 +1040,7 @@ describe('CotizacionesService.findAll clienteId (Story 3.7)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    aggregateExec.mockResolvedValue([
-      { data: [], totalCount: [{ count: 0 }] },
-    ]);
+    aggregateExec.mockResolvedValue([{ data: [], totalCount: [{ count: 0 }] }]);
     service = new CotizacionesService(
       cotizacionModel as any,
       {} as any,
@@ -1063,9 +1055,7 @@ describe('CotizacionesService.findAll clienteId (Story 3.7)', () => {
   });
 
   it('añade clienteId + estado al $match junto a tenantId', async () => {
-    aggregateExec.mockResolvedValue([
-      { data: [], totalCount: [{ count: 3 }] },
-    ]);
+    aggregateExec.mockResolvedValue([{ data: [], totalCount: [{ count: 3 }] }]);
     const result = await service.findAll({
       clienteId: clienteId.toString(),
       estado: 'vigente',
@@ -1088,9 +1078,7 @@ describe('CotizacionesService.findAll clienteId (Story 3.7)', () => {
   });
 
   it('otro clienteId aísla match (tenantId+clienteId) y total 0', async () => {
-    aggregateExec.mockResolvedValue([
-      { data: [], totalCount: [{ count: 0 }] },
-    ]);
+    aggregateExec.mockResolvedValue([{ data: [], totalCount: [{ count: 0 }] }]);
     const result = await service.findAll({
       clienteId: otherClienteId.toString(),
       estado: 'aceptada',
@@ -1313,7 +1301,9 @@ describe('CotizacionesService.create + enviarCorreoConPdf (Story 6.8)', () => {
     const overrideIdx = updates.findIndex(
       (u) => u?.emailsPara?.[0] === 'nuevo@x.com',
     );
-    const tokenIdx = updates.findIndex((u) => typeof u?.magicToken === 'string');
+    const tokenIdx = updates.findIndex(
+      (u) => typeof u?.magicToken === 'string',
+    );
     expect(overrideIdx).toBeGreaterThan(tokenIdx);
   });
 });
@@ -1358,6 +1348,15 @@ describe('CotizacionesService public magic link (Story 6.9)', () => {
         },
       ],
       emailsPara: ['secret@x.com'],
+      notasInternas: [
+        {
+          _id: new Types.ObjectId(),
+          texto: 'Nota interna secreta',
+          autorUserId: new Types.ObjectId(),
+          autorNombre: 'Admin',
+          createdAt: new Date(),
+        },
+      ],
     };
     ModelCtor = {
       findOne: jest.fn().mockReturnValue({
@@ -1393,6 +1392,7 @@ describe('CotizacionesService public magic link (Story 6.9)', () => {
     expect(dto as any).not.toHaveProperty('magicToken');
     expect(dto as any).not.toHaveProperty('tenantId');
     expect(dto as any).not.toHaveProperty('emailsPara');
+    expect(dto as any).not.toHaveProperty('notasInternas');
   });
 
   it('GET token inválido → 404', async () => {
@@ -1637,7 +1637,9 @@ describe('CotizacionesService cambio manual + provenance (Story 6.10)', () => {
     jest
       .spyOn(service, 'findOne')
       .mockRejectedValueOnce(
-        new NotFoundException(`Cotización con ID ${cotizacionId} no encontrada`),
+        new NotFoundException(
+          `Cotización con ID ${cotizacionId} no encontrada`,
+        ),
       );
     await expect(
       service.cambiarEstadoManual(String(cotizacionId), 'aceptada', actor),
@@ -1735,32 +1737,35 @@ describe('CotizacionesService markExpiredQuotations (Story 6.11)', () => {
     const count = await service.markExpiredQuotations();
     expect(count).toBe(1);
     expect(docs.filter((d) => d.estadoOrigen === 'cron')).toHaveLength(1);
-    expect(docs.find((d) => d.estado === 'aceptada')?.estadoOrigen).toBeUndefined();
-    expect(docs.find((d) => d.estado === 'rechazada')?.estadoOrigen).toBeUndefined();
     expect(
-      docs.find((d) => d.fechaVencimiento.getTime() === future.getTime())?.estado,
+      docs.find((d) => d.estado === 'aceptada')?.estadoOrigen,
+    ).toBeUndefined();
+    expect(
+      docs.find((d) => d.estado === 'rechazada')?.estadoOrigen,
+    ).toBeUndefined();
+    expect(
+      docs.find((d) => d.fechaVencimiento.getTime() === future.getTime())
+        ?.estado,
     ).toBe('vigente');
   });
 
   it('excluye sinVigencia del cron (Story 6.15)', async () => {
     const past = new Date('2020-01-01T00:00:00.000Z');
-    ModelCtor.updateMany.mockImplementation(
-      (filter: Record<string, any>) => {
-        const cutoff = filter.fechaVencimiento?.$lt as Date;
-        const docs = [
-          { estado: 'vigente', fechaVencimiento: past, sinVigencia: true },
-          { estado: 'vigente', fechaVencimiento: past, sinVigencia: false },
-        ];
-        const matched = docs.filter(
-          (d) =>
-            d.estado === filter.estado &&
-            d.sinVigencia !== true &&
-            filter.sinVigencia?.$ne === true &&
-            d.fechaVencimiento.getTime() < cutoff.getTime(),
-        );
-        return Promise.resolve({ modifiedCount: matched.length });
-      },
-    );
+    ModelCtor.updateMany.mockImplementation((filter: Record<string, any>) => {
+      const cutoff = filter.fechaVencimiento?.$lt as Date;
+      const docs = [
+        { estado: 'vigente', fechaVencimiento: past, sinVigencia: true },
+        { estado: 'vigente', fechaVencimiento: past, sinVigencia: false },
+      ];
+      const matched = docs.filter(
+        (d) =>
+          d.estado === filter.estado &&
+          d.sinVigencia !== true &&
+          filter.sinVigencia?.$ne === true &&
+          d.fechaVencimiento.getTime() < cutoff.getTime(),
+      );
+      return Promise.resolve({ modifiedCount: matched.length });
+    });
     const count = await service.markExpiredQuotations();
     expect(count).toBe(1);
     const filter = ModelCtor.updateMany.mock.calls[0][0];
@@ -1929,7 +1934,9 @@ describe('CotizacionesService repetirCotizacion (Story 6.12)', () => {
 
   it('actualizados: usa nombre/precio del catálogo', async () => {
     await service.repetirCotizacion(fuenteId, { modoPrecios: 'actualizados' });
-    expect(savedPayload.items[0].nombreServicioSnapshot).toBe('Catálogo Nombre');
+    expect(savedPayload.items[0].nombreServicioSnapshot).toBe(
+      'Catálogo Nombre',
+    );
     expect(savedPayload.items[0].precioUnitarioSnapshot).toBe(250);
     expect(savedPayload.items[0].descripcionServicioSnapshot).toBe(
       'Catálogo Desc',
@@ -2062,6 +2069,210 @@ describe('CotizacionesService repetirCotizacion (Story 6.12)', () => {
   });
 });
 
+describe('CotizacionesService previewRepetirCotizacion', () => {
+  const tenantId = new Types.ObjectId();
+  const fuenteId = new Types.ObjectId().toString();
+  const servicioId = new Types.ObjectId();
+  const servicioIdStr = servicioId.toString();
+
+  let service: CotizacionesService;
+  let ModelCtor: any;
+  let savedPayload: any;
+  let serviciosService: { findOne: jest.Mock };
+  let clientesService: { findOne: jest.Mock };
+  let tenantContext: { getTenantId: jest.Mock };
+  let tenantConfigService: { getForRequest: jest.Mock };
+
+  const fuenteBase = () => ({
+    _id: fuenteId,
+    tenantId,
+    folio: 'COT-2026-0001',
+    estado: 'aceptada',
+    nombreEmpresa: 'Acme',
+    nombreContacto: 'Ana',
+    emailContacto: 'ana@acme.com',
+    emailsPara: ['ana@acme.com'],
+    emailsCc: ['cc@acme.com'],
+    incluirDatosBancarios: true,
+    incluirDescripciones: true,
+    plantillasSnapshot: [
+      {
+        plantillaId: new Types.ObjectId(),
+        nombreSnapshot: 'Comercial',
+        schemaVersion: 1,
+        secciones: [{ id: 's1', tipo: 'richtext', titulo: 'T', cuerpo: {} }],
+      },
+    ],
+    items: [
+      {
+        servicioId,
+        nombreServicioSnapshot: 'Snap Nombre',
+        descripcionServicioSnapshot: 'Snap Desc',
+        precioUnitarioSnapshot: 100,
+        cantidad: 2,
+        subtotal: 200,
+      },
+    ],
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    savedPayload = null;
+    serviciosService = {
+      findOne: jest.fn().mockResolvedValue({
+        _id: servicioId,
+        tenantId,
+        activo: true,
+        nombre: 'Catálogo Nombre',
+        descripcion: 'Catálogo Desc',
+        precioUnitario: 250,
+      }),
+    };
+    clientesService = { findOne: jest.fn() };
+    tenantContext = { getTenantId: jest.fn().mockReturnValue(tenantId) };
+    tenantConfigService = {
+      getForRequest: jest.fn().mockResolvedValue({
+        vigenciaDefaultDias: 15,
+        bancarios: { banco: 'X', clabe: '123' },
+      }),
+    };
+
+    ModelCtor = function ModelCtor(this: any, data: any) {
+      savedPayload = data;
+      this.save = jest.fn().mockResolvedValue({
+        _id: new Types.ObjectId(),
+        ...data,
+      });
+      return this;
+    };
+
+    service = new CotizacionesService(
+      ModelCtor as any,
+      clientesService as any,
+      serviciosService as any,
+      {} as any,
+      tenantContext as any,
+      tenantConfigService as any,
+      { nextFolio: jest.fn() } as any,
+      {} as any,
+      {} as any,
+    );
+
+    jest.spyOn(service, 'findOne').mockImplementation(async (id: string) => {
+      if (String(id) === String(fuenteId) || id === fuenteId) {
+        return fuenteBase() as any;
+      }
+      return { _id: id } as any;
+    });
+  });
+
+  it('no persiste — ModelCtor.save no se invoca', async () => {
+    const preview = await service.previewRepetirCotizacion(fuenteId, {
+      modoPrecios: 'originales',
+    });
+    expect(preview.items[0].nombre).toBe('Snap Nombre');
+    expect(preview.items[0].precioUnitario).toBe(100);
+    expect(preview.moneda).toBe('MXN');
+    expect(preview.emailsPara).toEqual(['ana@acme.com']);
+    expect(preview.plantillas[0].nombre).toBe('Comercial');
+    expect(savedPayload).toBeNull();
+  });
+
+  it('originales: snapshots de fuente en items wizard-ready', async () => {
+    const preview = await service.previewRepetirCotizacion(fuenteId, {
+      modoPrecios: 'originales',
+    });
+    expect(preview.items[0]).toMatchObject({
+      servicioId: servicioIdStr,
+      cantidad: 2,
+      nombre: 'Snap Nombre',
+      descripcion: 'Snap Desc',
+      precioUnitario: 100,
+    });
+    expect(preview.incluirDescripciones).toBe(true);
+  });
+
+  it('actualizados: precios del catálogo', async () => {
+    const preview = await service.previewRepetirCotizacion(fuenteId, {
+      modoPrecios: 'actualizados',
+    });
+    expect(preview.items[0].nombre).toBe('Catálogo Nombre');
+    expect(preview.items[0].precioUnitario).toBe(250);
+    expect(savedPayload).toBeNull();
+  });
+
+  it('actualizados + inactivo → 400 con warnings sin persistir', async () => {
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: false,
+      nombre: 'Inactivo',
+      precioUnitario: 1,
+    });
+    try {
+      await service.previewRepetirCotizacion(fuenteId, {
+        modoPrecios: 'actualizados',
+      });
+      fail('expected HttpException');
+    } catch (e) {
+      expect(e).toBeInstanceOf(HttpException);
+      const body = (e as HttpException).getResponse() as any;
+      expect(body.warnings).toEqual([
+        {
+          index: 0,
+          servicioId: servicioIdStr,
+          motivo: 'inactivo',
+        },
+      ]);
+    }
+    expect(savedPayload).toBeNull();
+  });
+
+  it('actualizados + omitirServicioIds: preview coherente con repetir', async () => {
+    const otroId = new Types.ObjectId();
+    jest.spyOn(service, 'findOne').mockImplementation(async (id: string) => {
+      if (String(id) === String(fuenteId) || id === fuenteId) {
+        const f = fuenteBase();
+        f.items.push({
+          servicioId: otroId,
+          nombreServicioSnapshot: 'Otro',
+          precioUnitarioSnapshot: 10,
+          cantidad: 1,
+          subtotal: 10,
+        } as any);
+        return f as any;
+      }
+      return { _id: id } as any;
+    });
+    serviciosService.findOne.mockImplementation(async (sid: string) => {
+      if (String(sid) === servicioIdStr) {
+        return {
+          _id: servicioId,
+          tenantId,
+          activo: false,
+          nombre: 'Inactivo',
+          precioUnitario: 1,
+        };
+      }
+      return {
+        _id: otroId,
+        tenantId,
+        activo: true,
+        nombre: 'Activo',
+        precioUnitario: 40,
+      };
+    });
+
+    const preview = await service.previewRepetirCotizacion(fuenteId, {
+      modoPrecios: 'actualizados',
+      omitirServicioIds: [servicioIdStr],
+    });
+    expect(preview.items).toHaveLength(1);
+    expect(preview.items[0].nombre).toBe('Activo');
+    expect(preview.items[0].precioUnitario).toBe(40);
+  });
+});
+
 describe('CotizacionesService notificaciones internas magic link (Story 6.13)', () => {
   const tenantId = new Types.ObjectId();
   const token = 'notif-token-6-13';
@@ -2072,7 +2283,10 @@ describe('CotizacionesService notificaciones internas magic link (Story 6.13)', 
   let ModelCtor: any;
   let doc: any;
   let emailService: { sendInternalDecisionNotification: jest.Mock };
-  let tenantConfigService: { findByTenantId: jest.Mock; getForRequest: jest.Mock };
+  let tenantConfigService: {
+    findByTenantId: jest.Mock;
+    getForRequest: jest.Mock;
+  };
   let usersService: { findById: jest.Mock };
   let tenantContext: { getTenantId: jest.Mock };
 
@@ -2207,7 +2421,9 @@ describe('CotizacionesService notificaciones internas magic link (Story 6.13)', 
     doc.estado = 'aceptada';
     await service.aceptarCotizacionByMagicToken(token);
     expect(ModelCtor.findOneAndUpdate).not.toHaveBeenCalled();
-    expect(emailService.sendInternalDecisionNotification).not.toHaveBeenCalled();
+    expect(
+      emailService.sendInternalDecisionNotification,
+    ).not.toHaveBeenCalled();
   });
 
   it('SMTP fail → estado aceptada y no lanza', async () => {
@@ -2233,7 +2449,9 @@ describe('CotizacionesService notificaciones internas magic link (Story 6.13)', 
       }),
     });
     await service.aceptarCotizacionByMagicToken(token);
-    expect(emailService.sendInternalDecisionNotification).not.toHaveBeenCalled();
+    expect(
+      emailService.sendInternalDecisionNotification,
+    ).not.toHaveBeenCalled();
   });
 
   it('cambiarEstadoManual no notifica', async () => {
@@ -2260,12 +2478,10 @@ describe('CotizacionesService notificaciones internas magic link (Story 6.13)', 
       estado: 'vigente',
     } as any);
 
-    await service.cambiarEstadoManual(
-      String(cotizacionId),
-      'aceptada',
-      actor,
-    );
-    expect(emailService.sendInternalDecisionNotification).not.toHaveBeenCalled();
+    await service.cambiarEstadoManual(String(cotizacionId), 'aceptada', actor);
+    expect(
+      emailService.sendInternalDecisionNotification,
+    ).not.toHaveBeenCalled();
   });
 
   it('createAdminCotizacion persiste creador del actor JWT', async () => {
@@ -2456,6 +2672,131 @@ describe('CotizacionesService notificaciones internas magic link (Story 6.13)', 
     expect(savedPayload.creadoPorEmail).toBe('actor@ames.test');
     expect(String(savedPayload.creadoPorUserId)).not.toBe(
       String(fuenteCreadorId),
+    );
+  });
+});
+
+describe('CotizacionesService notas internas', () => {
+  const tenantId = new Types.ObjectId();
+  const cotizacionId = new Types.ObjectId();
+  const userId = new Types.ObjectId();
+  const otherUserId = new Types.ObjectId();
+  const notaId = new Types.ObjectId();
+
+  const tenantContext = {
+    getTenantId: jest.fn().mockReturnValue(tenantId),
+  };
+  const usersService = {
+    findById: jest.fn().mockResolvedValue({ nombre: 'Usuario Test' }),
+  };
+
+  let service: CotizacionesService;
+  let ModelCtor: any;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (tenantContext.getTenantId as jest.Mock).mockReturnValue(tenantId);
+    ModelCtor = {
+      findOne: jest.fn(),
+      findOneAndUpdate: jest.fn(),
+    };
+    service = new CotizacionesService(
+      ModelCtor,
+      {} as any,
+      {} as any,
+      {} as any,
+      tenantContext as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      usersService as any,
+    );
+  });
+
+  function mockFindOneAndUpdateChain(result: any) {
+    ModelCtor.findOneAndUpdate.mockReturnValue({
+      populate: jest.fn().mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          exec: jest.fn().mockResolvedValue(result),
+        }),
+      }),
+    });
+  }
+
+  function mockNotaLookup(autorUserId: Types.ObjectId) {
+    ModelCtor.findOne.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        lean: jest.fn().mockReturnValue({
+          exec: jest.fn().mockResolvedValue({
+            notasInternas: [
+              {
+                _id: notaId,
+                texto: 'Nota existente',
+                autorUserId,
+              },
+            ],
+          }),
+        }),
+      }),
+    });
+  }
+
+  it('agregarNotaInterna persiste autor y texto', async () => {
+    const updated = { _id: cotizacionId, folio: 'COT-1' };
+    mockFindOneAndUpdateChain(updated);
+    const actor = { _id: String(userId), email: 'user@test.com' };
+    const result = await service.agregarNotaInterna(
+      String(cotizacionId),
+      { texto: '  Nota de prueba  ' },
+      actor,
+    );
+    expect(result).toBe(updated);
+    const updateCall = ModelCtor.findOneAndUpdate.mock.calls[0];
+    expect(updateCall[0]).toEqual({ _id: String(cotizacionId), tenantId });
+    expect(updateCall[1].$push.notasInternas.texto).toBe('Nota de prueba');
+    expect(String(updateCall[1].$push.notasInternas.autorUserId)).toBe(
+      String(userId),
+    );
+    expect(updateCall[1].$push.notasInternas.autorNombre).toBe('Usuario Test');
+  });
+
+  it('actualizarNotaInterna de otro autor → 403', async () => {
+    mockNotaLookup(otherUserId);
+    await expect(
+      service.actualizarNotaInterna(
+        String(cotizacionId),
+        String(notaId),
+        { texto: 'Intento editar' },
+        { _id: String(userId), email: 'user@test.com' },
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('eliminarNotaInterna de otro autor → 403', async () => {
+    mockNotaLookup(otherUserId);
+    await expect(
+      service.eliminarNotaInterna(String(cotizacionId), String(notaId), {
+        _id: String(userId),
+        email: 'user@test.com',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('actualizarNotaInterna propia actualiza texto', async () => {
+    mockNotaLookup(userId);
+    const updated = { _id: cotizacionId, folio: 'COT-1' };
+    mockFindOneAndUpdateChain(updated);
+    const result = await service.actualizarNotaInterna(
+      String(cotizacionId),
+      String(notaId),
+      { texto: 'Texto editado' },
+      { _id: String(userId), email: 'user@test.com' },
+    );
+    expect(result).toBe(updated);
+    const updateCall = ModelCtor.findOneAndUpdate.mock.calls[0];
+    expect(updateCall[1].$set['notasInternas.$.texto']).toBe('Texto editado');
+    expect(updateCall[1].$set['notasInternas.$.updatedAt']).toBeInstanceOf(
+      Date,
     );
   });
 });

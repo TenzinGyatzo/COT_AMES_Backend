@@ -27,18 +27,14 @@ export class ContactosService {
     return term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
-  private optionalText(
-    value: string | null | undefined,
-  ): string | undefined {
+  private optionalText(value: string | null | undefined): string | undefined {
     if (value === undefined) return undefined;
     if (value === null || value === '') return undefined;
     const t = value.trim();
     return t || undefined;
   }
 
-  private optionalEmail(
-    value: string | null | undefined,
-  ): string | undefined {
+  private optionalEmail(value: string | null | undefined): string | undefined {
     const t = this.optionalText(value);
     return t ? t.toLowerCase() : undefined;
   }
@@ -60,17 +56,12 @@ export class ContactosService {
     return cliente;
   }
 
-  async create(
-    clienteId: string,
-    dto: CreateContactoDto,
-  ): Promise<Contacto> {
+  async create(clienteId: string, dto: CreateContactoDto): Promise<Contacto> {
     await this.assertCliente(clienteId, { requireActivo: true });
     const tenantId = this.tenantContext.getTenantId();
     const nombre = (dto.nombre || '').trim();
     if (!nombre) {
-      throw new BadRequestException(
-        'Debe proporcionar el nombre del contacto',
-      );
+      throw new BadRequestException('Debe proporcionar el nombre del contacto');
     }
 
     const correo = this.optionalEmail(dto.correo ?? undefined);

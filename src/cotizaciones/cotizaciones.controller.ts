@@ -5,6 +5,7 @@ import {
   Body,
   Patch,
   Param,
+  Delete,
   Query,
   HttpCode,
   HttpStatus,
@@ -49,6 +50,8 @@ import {
 import { PublicCotizacionResponseDto } from './dto/public-cotizacion-response.dto';
 import { CambiarEstadoDto } from './dto/cambiar-estado.dto';
 import { RepetirCotizacionDto } from './dto/repetir-cotizacion.dto';
+import { CreateNotaInternaDto } from './dto/create-nota-interna.dto';
+import { UpdateNotaInternaDto } from './dto/update-nota-interna.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @ApiTags('cotizaciones')
@@ -77,8 +80,7 @@ export class CotizacionesController {
   })
   @ApiResponse({
     status: 400,
-    description:
-      'Datos inválidos, o cliente inactivo (no se puede cotizar)',
+    description: 'Datos inválidos, o cliente inactivo (no se puede cotizar)',
   })
   @ApiResponse({
     status: 404,
@@ -135,7 +137,8 @@ export class CotizacionesController {
       'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
   })
   @ApiOperation({
-    summary: 'Enviar cotización por correo con PDF del frontend (Story 6.8 / 6.17)',
+    summary:
+      'Enviar cotización por correo con PDF del frontend (Story 6.8 / 6.17)',
     description:
       'Multipart: PDF generado en FE + opcional overrides emailsPara/emailsCc (JSON). Emite magic link; no persiste el PDF. Sirve al crear (wizard) y al reenviar desde el detalle de una cotización ya creada.',
   })
@@ -159,7 +162,10 @@ export class CotizacionesController {
   })
   @ApiParam({ name: 'id', description: 'ID de la cotización' })
   @ApiResponse({ status: 200, description: 'Correo enviado' })
-  @ApiResponse({ status: 400, description: 'PDF/destinatarios inválidos o SMTP falló' })
+  @ApiResponse({
+    status: 400,
+    description: 'PDF/destinatarios inválidos o SMTP falló',
+  })
   @ApiResponse({ status: 404, description: 'Cotización no encontrada' })
   @UseFilters(MulterPdfBadRequestFilter)
   @UseInterceptors(
@@ -176,7 +182,10 @@ export class CotizacionesController {
   ) {
     const overrides: { emailsPara?: string[]; emailsCc?: string[] } = {};
     if (body?.emailsPara !== undefined) {
-      overrides.emailsPara = this.parseEmailJsonField(body.emailsPara, 'emailsPara');
+      overrides.emailsPara = this.parseEmailJsonField(
+        body.emailsPara,
+        'emailsPara',
+      );
     }
     if (body?.emailsCc !== undefined) {
       overrides.emailsCc = this.parseEmailJsonField(body.emailsCc, 'emailsCc');
@@ -198,15 +207,11 @@ export class CotizacionesController {
       const emails: string[] = [];
       for (const item of parsed) {
         if (typeof item !== 'string') {
-          throw new BadRequestException(
-            `${field} contiene un correo inválido`,
-          );
+          throw new BadRequestException(`${field} contiene un correo inválido`);
         }
         const email = item.trim();
         if (!email || !isEmail(email)) {
-          throw new BadRequestException(
-            `${field} contiene un correo inválido`,
-          );
+          throw new BadRequestException(`${field} contiene un correo inválido`);
         }
         emails.push(email);
       }
@@ -243,8 +248,7 @@ export class CotizacionesController {
     name: 'search',
     required: false,
     type: String,
-    description:
-      'Búsqueda por folio, empresa, solicitante, RFC o correo',
+    description: 'Búsqueda por folio, empresa, solicitante, RFC o correo',
   })
   @ApiQuery({
     name: 'page',
@@ -377,6 +381,33 @@ export class CotizacionesController {
     return this.cotizacionesService.repetirCotizacion(id, dto, user);
   }
 
+  @Post(':id/repetir/preview')
+  @UseGuards(JwtAuthGuard, RolesGuard, TenantContextGuard)
+  @UseInterceptors(TenantContextInterceptor)
+  @RolesDecorator(...AMES_ROLES)
+  @ApiBearerAuth()
+  @ApiHeader({
+    name: 'X-Tenant-Id',
+    required: false,
+    description:
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+  })
+  @ApiOperation({
+    summary: 'Preview repetir cotización (wizard precargado)',
+    description:
+      'Misma lógica que repetir pero sin persistir. Devuelve payload wizard-ready. 400 con warnings si hay servicios inactivos/inexistentes (modo actualizados).',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la cotización fuente' })
+  @ApiResponse({ status: 200, description: 'Preview wizard-ready' })
+  @ApiResponse({
+    status: 400,
+    description: 'Warnings de servicios o body inválido',
+  })
+  @ApiResponse({ status: 404, description: 'Cotización no encontrada' })
+  previewRepetir(@Param('id') id: string, @Body() dto: RepetirCotizacionDto) {
+    return this.cotizacionesService.previewRepetirCotizacion(id, dto);
+  }
+
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard, TenantContextGuard)
   @UseInterceptors(TenantContextInterceptor)
@@ -403,7 +434,6 @@ export class CotizacionesController {
     return this.cotizacionesService.update(id, updateCotizacionDto, user);
   }
 
-
   @Patch(':id/estado')
   @UseGuards(JwtAuthGuard, RolesGuard, TenantContextGuard)
   @UseInterceptors(TenantContextInterceptor)
@@ -422,7 +452,10 @@ export class CotizacionesController {
   })
   @ApiParam({ name: 'id', description: 'ID de la cotización' })
   @ApiResponse({ status: 200, description: 'Estado actualizado' })
-  @ApiResponse({ status: 400, description: 'Estado inválido o igual al actual' })
+  @ApiResponse({
+    status: 400,
+    description: 'Estado inválido o igual al actual',
+  })
   @ApiResponse({ status: 404, description: 'Cotización no encontrada' })
   cambiarEstado(
     @Param('id') id: string,
@@ -455,7 +488,10 @@ export class CotizacionesController {
     status: 200,
     description: 'Cotización aceptada exitosamente',
   })
-  @ApiResponse({ status: 400, description: 'Estado inválido o datos faltantes' })
+  @ApiResponse({
+    status: 400,
+    description: 'Estado inválido o datos faltantes',
+  })
   @ApiResponse({ status: 404, description: 'Cotización no encontrada' })
   aceptarCotizacionAdmin(
     @Param('id') id: string,
@@ -509,7 +545,8 @@ export class CotizacionesController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Marcar una cotización específica como vencida',
-    description: 'Atajo a cambio manual → vencida (origen usuario). Cron → 6.11.',
+    description:
+      'Atajo a cambio manual → vencida (origen usuario). Cron → 6.11.',
   })
   @ApiParam({ name: 'id', description: 'ID de la cotización' })
   @ApiResponse({
@@ -522,6 +559,95 @@ export class CotizacionesController {
     @CurrentUser() user: { _id?: string; email?: string },
   ) {
     return this.cotizacionesService.marcarVencida(id, user);
+  }
+
+  @Post(':id/notas-internas')
+  @UseGuards(JwtAuthGuard, RolesGuard, TenantContextGuard)
+  @UseInterceptors(TenantContextInterceptor)
+  @RolesDecorator(...AMES_ROLES)
+  @ApiBearerAuth()
+  @ApiHeader({
+    name: 'X-Tenant-Id',
+    required: false,
+    description:
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+  })
+  @ApiOperation({
+    summary: 'Agregar nota interna a una cotización',
+    description:
+      'Solo visible para usuarios AMES. No aparece en PDF ni en la vista pública del cliente.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la cotización' })
+  @ApiResponse({ status: 201, description: 'Nota agregada' })
+  @ApiResponse({ status: 404, description: 'Cotización no encontrada' })
+  agregarNotaInterna(
+    @Param('id') id: string,
+    @Body() dto: CreateNotaInternaDto,
+    @CurrentUser() user: { _id?: string; sub?: string; email?: string },
+  ) {
+    return this.cotizacionesService.agregarNotaInterna(id, dto, user);
+  }
+
+  @Patch(':id/notas-internas/:notaId')
+  @UseGuards(JwtAuthGuard, RolesGuard, TenantContextGuard)
+  @UseInterceptors(TenantContextInterceptor)
+  @RolesDecorator(...AMES_ROLES)
+  @ApiBearerAuth()
+  @ApiHeader({
+    name: 'X-Tenant-Id',
+    required: false,
+    description:
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+  })
+  @ApiOperation({
+    summary: 'Editar nota interna propia',
+    description: 'Solo el autor puede editar su nota.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la cotización' })
+  @ApiParam({ name: 'notaId', description: 'ID de la nota interna' })
+  @ApiResponse({ status: 200, description: 'Nota actualizada' })
+  @ApiResponse({ status: 403, description: 'No es autor de la nota' })
+  @ApiResponse({ status: 404, description: 'Cotización o nota no encontrada' })
+  actualizarNotaInterna(
+    @Param('id') id: string,
+    @Param('notaId') notaId: string,
+    @Body() dto: UpdateNotaInternaDto,
+    @CurrentUser() user: { _id?: string; sub?: string; email?: string },
+  ) {
+    return this.cotizacionesService.actualizarNotaInterna(
+      id,
+      notaId,
+      dto,
+      user,
+    );
+  }
+
+  @Delete(':id/notas-internas/:notaId')
+  @UseGuards(JwtAuthGuard, RolesGuard, TenantContextGuard)
+  @UseInterceptors(TenantContextInterceptor)
+  @RolesDecorator(...AMES_ROLES)
+  @ApiBearerAuth()
+  @ApiHeader({
+    name: 'X-Tenant-Id',
+    required: false,
+    description:
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+  })
+  @ApiOperation({
+    summary: 'Eliminar nota interna propia',
+    description: 'Solo el autor puede eliminar su nota.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la cotización' })
+  @ApiParam({ name: 'notaId', description: 'ID de la nota interna' })
+  @ApiResponse({ status: 200, description: 'Nota eliminada' })
+  @ApiResponse({ status: 403, description: 'No es autor de la nota' })
+  @ApiResponse({ status: 404, description: 'Cotización o nota no encontrada' })
+  eliminarNotaInterna(
+    @Param('id') id: string,
+    @Param('notaId') notaId: string,
+    @CurrentUser() user: { _id?: string; sub?: string; email?: string },
+  ) {
+    return this.cotizacionesService.eliminarNotaInterna(id, notaId, user);
   }
 
   // --- ENDPOINTS PÚBLICOS (MAGIC LINK) — sin TenantGuard (AD-3 / Story 6.9) ---

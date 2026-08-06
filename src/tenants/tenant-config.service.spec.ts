@@ -8,7 +8,10 @@ describe('TenantConfigService (Stories 2.1–2.5)', () => {
 
   const store = new Map<string, any>();
 
-  function makeDoc(tid: Types.ObjectId, branding: Record<string, unknown> = {}) {
+  function makeDoc(
+    tid: Types.ObjectId,
+    branding: Record<string, unknown> = {},
+  ) {
     return {
       _id: new Types.ObjectId(),
       tenantId: tid,
@@ -33,16 +36,14 @@ describe('TenantConfigService (Stories 2.1–2.5)', () => {
       exec: async () => store.get(String(q.tenantId)) || null,
     })),
     findOneAndUpdate: jest.fn(
-      (
-        filter: { tenantId: Types.ObjectId },
-        update: any,
-        _opts: unknown,
-      ) => ({
+      (filter: { tenantId: Types.ObjectId }, update: any, _opts: unknown) => ({
         exec: async () => {
           const key = String(filter.tenantId);
           let doc = store.get(key);
           if (!doc) {
-            const insert = update?.$setOnInsert || { tenantId: filter.tenantId };
+            const insert = update?.$setOnInsert || {
+              tenantId: filter.tenantId,
+            };
             doc = makeDoc(filter.tenantId, insert.branding || {});
             if (insert.vigenciaDefaultDias != null) {
               doc.vigenciaDefaultDias = insert.vigenciaDefaultDias;
@@ -349,16 +350,18 @@ describe('TenantConfigService (Stories 2.1–2.5)', () => {
       bancarios: { banco: 'Nuevo' },
     });
     expect(updated.bancarios?.banco).toBe('Nuevo');
-    expect(updated.bancarios?.logoUrl).toBe(
-      '/uploads/tenant-bank-logos/x.png',
-    );
+    expect(updated.bancarios?.logoUrl).toBe('/uploads/tenant-bank-logos/x.png');
   });
 
   it('updateEmailConfig guarda remitente y lista scoped al tenant', async () => {
     await service.findOrCreateForTenant(tenantId);
     const updated = await service.updateEmailConfig({
       emailRemitente: 'qro@ames.example',
-      correosNotificacion: ['a@ames.example', 'A@ames.example', 'b@ames.example'],
+      correosNotificacion: [
+        'a@ames.example',
+        'A@ames.example',
+        'b@ames.example',
+      ],
     });
     expect(updated.emailRemitente).toBe('qro@ames.example');
     expect(updated.correosNotificacion).toEqual([

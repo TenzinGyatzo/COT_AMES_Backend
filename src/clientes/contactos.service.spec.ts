@@ -1,7 +1,4 @@
-import {
-  BadRequestException,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { ContactosService } from './contactos.service';
 import { ClientesService } from './clientes.service';
@@ -216,10 +213,7 @@ describe('ContactosService (Story 3.3)', () => {
       exec: jest.fn().mockResolvedValue(null),
     });
     await expect(
-      service.findOne(
-        clienteId.toString(),
-        new Types.ObjectId().toString(),
-      ),
+      service.findOne(clienteId.toString(), new Types.ObjectId().toString()),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(contactoModel.findOne).toHaveBeenCalledWith(
       expect.objectContaining({

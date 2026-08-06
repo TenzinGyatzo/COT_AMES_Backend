@@ -37,9 +37,7 @@ export class ServiciosService implements OnModuleInit {
     return term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
-  private buildSort(
-    orden?: ServicioOrden,
-  ): Record<string, 1 | -1> {
+  private buildSort(orden?: ServicioOrden): Record<string, 1 | -1> {
     switch (orden) {
       case ServicioOrden.NOMBRE_ASC:
         return { nombre: 1 };
@@ -118,9 +116,7 @@ export class ServiciosService implements OnModuleInit {
   ): Promise<{ created: Servicio[] }> {
     const uniqueIds = [...new Set(dto.tenantIds.map((id) => String(id)))];
     if (uniqueIds.length < 1 || uniqueIds.length > 2) {
-      throw new BadRequestException(
-        'Debe indicar entre 1 y 2 tenants destino',
-      );
+      throw new BadRequestException('Debe indicar entre 1 y 2 tenants destino');
     }
 
     const resolved: Types.ObjectId[] = [];

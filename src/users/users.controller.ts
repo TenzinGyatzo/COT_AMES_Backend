@@ -42,7 +42,10 @@ export class UsersController {
       'Solo admin_sistema. Operativo requiere exactamente un tenant activo; admin_sistema sin tenant fijo (AD-8 / Story 1.6).',
   })
   @ApiResponse({ status: 201, type: UserResponseDto })
-  @ApiResponse({ status: 400, description: 'Datos o reglas rol↔tenant inválidas' })
+  @ApiResponse({
+    status: 400,
+    description: 'Datos o reglas rol↔tenant inválidas',
+  })
   @ApiResponse({ status: 409, description: 'Email duplicado' })
   @ApiResponse({ status: 403, description: 'Solo administrador de sistema' })
   async create(@Body() createUserDto: CreateUserDto) {
@@ -53,7 +56,11 @@ export class UsersController {
   @Get()
   @ApiOperation({ summary: 'Listar usuarios AMES (default: activos)' })
   @ApiQuery({ name: 'activo', required: false, type: Boolean })
-  @ApiQuery({ name: 'rol', required: false, enum: ['operativo', 'admin_sistema'] })
+  @ApiQuery({
+    name: 'rol',
+    required: false,
+    enum: ['operativo', 'admin_sistema'],
+  })
   @ApiQuery({ name: 'search', required: false, type: String })
   @ApiResponse({ status: 200, type: [UserResponseDto] })
   findAll(@Query() filters?: FilterUserDto) {

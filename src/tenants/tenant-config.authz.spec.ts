@@ -1,7 +1,4 @@
-import {
-  ForbiddenException,
-  ExecutionContext,
-} from '@nestjs/common';
+import { ForbiddenException, ExecutionContext } from '@nestjs/common';
 import { AdminGuard } from '../auth/guards/admin.guard';
 import { Roles } from '../auth/enums/roles.enum';
 

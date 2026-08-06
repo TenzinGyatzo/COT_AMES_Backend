@@ -24,6 +24,24 @@ export class ItemCotizacion {
   subtotal: number;
 }
 
+/** Nota interna visible solo para usuarios AMES (no PDF / no vista pública). */
+export class NotaInternaCotizacion {
+  @Prop({ required: true, maxlength: 2000 })
+  texto: string;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  autorUserId: Types.ObjectId;
+
+  @Prop({ required: true })
+  autorNombre: string;
+
+  @Prop({ required: true, default: () => new Date() })
+  createdAt: Date;
+
+  @Prop({ required: false })
+  updatedAt?: Date;
+}
+
 /** Snapshot de plantilla embebido (Story 6.5 / AD-6). Orden del array = orden PDF tras cuerpo. */
 export class PlantillaSnapshot {
   @Prop({ type: Types.ObjectId, ref: 'Plantilla', required: true })
@@ -168,6 +186,10 @@ export class Cotizacion {
   /** Plantillas aplicadas (deep copy). Vacío/omitido = sin páginas de plantilla. */
   @Prop({ type: [Object], default: [] })
   plantillasSnapshot?: PlantillaSnapshot[];
+
+  /** Notas internas del equipo AMES. No se copian al repetir ni se exponen al cliente. */
+  @Prop({ type: [Object], default: [] })
+  notasInternas?: NotaInternaCotizacion[];
 }
 
 export const CotizacionSchema = SchemaFactory.createForClass(Cotizacion);

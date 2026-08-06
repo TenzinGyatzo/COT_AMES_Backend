@@ -99,16 +99,10 @@ export class CountersService {
   async nextSeq(tenantId: Types.ObjectId, year: number): Promise<number> {
     await this.ensureCounter(tenantId, year);
     const updated = await this.counterModel
-      .findOneAndUpdate(
-        { tenantId, year },
-        { $inc: { seq: 1 } },
-        { new: true },
-      )
+      .findOneAndUpdate({ tenantId, year }, { $inc: { seq: 1 } }, { new: true })
       .exec();
     if (!updated || typeof updated.seq !== 'number') {
-      this.logger.error(
-        `Counter $inc falló tenant=${tenantId} year=${year}`,
-      );
+      this.logger.error(`Counter $inc falló tenant=${tenantId} year=${year}`);
       throw new InternalServerErrorException(
         'No se pudo asignar el siguiente folio',
       );

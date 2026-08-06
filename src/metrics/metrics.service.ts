@@ -206,7 +206,11 @@ export class MetricsService {
     const match = await this.buildMatch(filters);
     const tenantId = match.tenantId;
     const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfDay = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
     const endOfDay = new Date(
       now.getFullYear(),
       now.getMonth(),

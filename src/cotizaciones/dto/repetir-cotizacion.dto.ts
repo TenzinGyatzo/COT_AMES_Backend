@@ -49,7 +49,8 @@ export class RepetirCotizacionDto {
 
   @ApiPropertyOptional({
     type: [SustitucionServicioDto],
-    description: 'Reemplazos de servicio (cantidad se conserva del ítem origen)',
+    description:
+      'Reemplazos de servicio (cantidad se conserva del ítem origen)',
   })
   @IsOptional()
   @IsArray()

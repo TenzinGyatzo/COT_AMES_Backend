@@ -61,7 +61,10 @@ export class TenantConfigController {
       'Roles AMES (operativo + admin_sistema). Si no existe documento, crea shell. Incluye branding, email, vigencia, bancarios y logo banco (2.2–2.5). Escritura sigue restringida a admin_sistema.',
   })
   @ApiResponse({ status: 200, type: TenantConfigResponseDto })
-  @ApiResponse({ status: 400, description: 'X-Tenant-Id ausente o ambiguo (admin)' })
+  @ApiResponse({
+    status: 400,
+    description: 'X-Tenant-Id ausente o ambiguo (admin)',
+  })
   @ApiResponse({ status: 401, description: 'JWT ausente o inválido' })
   @ApiResponse({
     status: 403,
@@ -114,7 +117,10 @@ export class TenantConfigController {
   })
   @ApiBody({ type: UpdateTenantVigenciaBancariosDto })
   @ApiResponse({ status: 200, type: TenantConfigResponseDto })
-  @ApiResponse({ status: 400, description: 'Validación (días fuera de rango, etc.)' })
+  @ApiResponse({
+    status: 400,
+    description: 'Validación (días fuera de rango, etc.)',
+  })
   @ApiResponse({ status: 403, description: 'No admin / tenant inválido' })
   async patchVigenciaBancarios(@Body() dto: UpdateTenantVigenciaBancariosDto) {
     const doc = await this.tenantConfigService.updateVigenciaBancarios(dto);

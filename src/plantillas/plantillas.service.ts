@@ -65,7 +65,9 @@ export class PlantillasService implements OnModuleInit {
       }
       seenIds.add(id);
       if (s.tipo === 'richtext') {
-        const cuerpo = s.cuerpo as { text?: unknown; doc?: unknown } | undefined;
+        const cuerpo = s.cuerpo as
+          | { text?: unknown; doc?: unknown }
+          | undefined;
         if (!cuerpo || typeof cuerpo.text !== 'string') {
           throw new BadRequestException(
             'Sección richtext requiere cuerpo.text',
@@ -205,9 +207,7 @@ export class PlantillasService implements OnModuleInit {
   async findOne(id: string): Promise<Plantilla> {
     assertStrictObjectIdOrNotFound(id, 'Plantilla');
     const tenantId = this.tenantContext.getTenantId();
-    const doc = await this.plantillaModel
-      .findOne({ _id: id, tenantId })
-      .exec();
+    const doc = await this.plantillaModel.findOne({ _id: id, tenantId }).exec();
     if (!doc) {
       throw new NotFoundException(`Plantilla con ID ${id} no encontrada`);
     }

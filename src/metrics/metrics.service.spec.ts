@@ -166,9 +166,9 @@ describe('MetricsService (Story 7.1 / 7.2)', () => {
   describe('Story 7.2 — cambio de contexto admin (selector → nuevo tenantId)', () => {
     it('al cambiar getTenantId A→B, totals solo usa B (no mezcla A)', async () => {
       await service.getTotalsMetrics();
-      expect(countCalls.every((f) => String(f.tenantId) === String(tenantA))).toBe(
-        true,
-      );
+      expect(
+        countCalls.every((f) => String(f.tenantId) === String(tenantA)),
+      ).toBe(true);
 
       countCalls.length = 0;
       tenantContext.getTenantId.mockReturnValue(tenantB);

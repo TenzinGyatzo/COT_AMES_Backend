@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Logger,
@@ -41,11 +42,11 @@ import {
 import { isEmail } from 'class-validator';
 import { PublicCotizacionResponseDto } from './dto/public-cotizacion-response.dto';
 import { UsersService } from '../users/users.service';
-import {
-  ESTADOS_COTIZACION,
-  EstadoCotizacion,
-} from './dto/cambiar-estado.dto';
+import { ESTADOS_COTIZACION, EstadoCotizacion } from './dto/cambiar-estado.dto';
 import { RepetirCotizacionDto } from './dto/repetir-cotizacion.dto';
+import { RepetirCotizacionPreviewDto } from './dto/repetir-cotizacion-preview.dto';
+import { CreateNotaInternaDto } from './dto/create-nota-interna.dto';
+import { UpdateNotaInternaDto } from './dto/update-nota-interna.dto';
 
 export type EstadoActorJwt = {
   _id?: string;
@@ -157,10 +158,7 @@ export class CotizacionesService {
       const maestra = (await this.plantillasService.findOne(
         p.plantillaId,
       )) as any;
-      if (
-        !maestra.tenantId ||
-        String(maestra.tenantId) !== String(tenantId)
-      ) {
+      if (!maestra.tenantId || String(maestra.tenantId) !== String(tenantId)) {
         throw new NotFoundException(
           `Plantilla con ID ${p.plantillaId} no encontrada`,
         );
@@ -212,10 +210,7 @@ export class CotizacionesService {
   }> {
     const fechaCreacion = new Date();
     if (opts?.sinVigencia) {
-      if (
-        fechaVencimiento != null &&
-        String(fechaVencimiento).trim() !== ''
-      ) {
+      if (fechaVencimiento != null && String(fechaVencimiento).trim() !== '') {
         throw new BadRequestException(
           'No envíe fechaVencimiento cuando sinVigencia es true',
         );
@@ -238,10 +233,7 @@ export class CotizacionesService {
       try {
         const cfg = await this.tenantConfigService.getForRequest();
         if (typeof cfg.vigenciaDefaultDias === 'number') {
-          if (
-            cfg.vigenciaDefaultDias >= 1 &&
-            cfg.vigenciaDefaultDias <= 365
-          ) {
+          if (cfg.vigenciaDefaultDias >= 1 && cfg.vigenciaDefaultDias <= 365) {
             days = cfg.vigenciaDefaultDias;
           } else {
             this.logger.warn(
@@ -311,9 +303,7 @@ export class CotizacionesService {
         servicioId: i.servicioId,
         cantidad: i.cantidad,
         ...(i.nombre !== undefined ? { nombre: i.nombre } : {}),
-        ...(i.descripcion !== undefined
-          ? { descripcion: i.descripcion }
-          : {}),
+        ...(i.descripcion !== undefined ? { descripcion: i.descripcion } : {}),
         ...(i.precioUnitario !== undefined
           ? { precioUnitario: i.precioUnitario }
           : {}),
@@ -324,7 +314,10 @@ export class CotizacionesService {
   }
 
   /** Story 6.13 — snapshot de creador AMES (create / repetir). */
-  private applyCreadorFields(data: Record<string, unknown>, actor?: EstadoActorJwt) {
+  private applyCreadorFields(
+    data: Record<string, unknown>,
+    actor?: EstadoActorJwt,
+  ) {
     if (!actor) return;
     const rawId = actor._id || actor.sub;
     if (rawId && isStrictObjectId(String(rawId))) {
@@ -368,7 +361,9 @@ export class CotizacionesService {
     let clienteId: Types.ObjectId | undefined;
     let empresaFromCliente: string | undefined;
     if (dto.clienteId) {
-      const cliente = (await this.clientesService.findOne(dto.clienteId)) as any;
+      const cliente = (await this.clientesService.findOne(
+        dto.clienteId,
+      )) as any;
       if (!cliente.tenantId || String(cliente.tenantId) !== String(tenantId)) {
         throw new NotFoundException(
           `Cliente con ID ${dto.clienteId} no encontrado`,
@@ -484,19 +479,10 @@ export class CotizacionesService {
    * Story 6.12 / FR-35 / FR-36 — clona cotización con precios originales o actualizados.
    * No SMTP / magic token. Permite servicio inactivo en modo originales.
    */
-  async repetirCotizacion(
-    id: string,
-    dto: RepetirCotizacionDto,
-    actor?: EstadoActorJwt,
-  ): Promise<Cotizacion> {
-    const fuente = (await this.findOne(id)) as any;
-    if (!ESTADOS_COTIZACION.includes(fuente.estado as EstadoCotizacion)) {
-      throw new BadRequestException(
-        'Solo se pueden repetir cotizaciones vigentes, vencidas, aceptadas o rechazadas',
-      );
-    }
-
-    const tenantId = this.tenantContext.getTenantId();
+  private parseRepetirResoluciones(dto: RepetirCotizacionDto): {
+    omitSet: Set<string>;
+    sustMap: Map<string, string>;
+  } {
     const omitSet = new Set(
       (dto.omitirServicioIds || []).map((s) => String(s)),
     );
@@ -518,13 +504,36 @@ export class CotizacionesService {
         );
       }
     }
+    return { omitSet, sustMap };
+  }
 
-    type Warning = {
+  private assertFuenteRepetible(fuente: any): void {
+    if (!ESTADOS_COTIZACION.includes(fuente.estado as EstadoCotizacion)) {
+      throw new BadRequestException(
+        'Solo se pueden repetir cotizaciones vigentes, vencidas, aceptadas o rechazadas',
+      );
+    }
+  }
+
+  private async buildRepetirItems(
+    fuente: any,
+    dto: RepetirCotizacionDto,
+    tenantId: Types.ObjectId,
+  ): Promise<{
+    items: ItemCotizacion[];
+    total: number;
+    warnings: Array<{
       index: number;
       servicioId: string;
       motivo: 'inexistente' | 'inactivo';
-    };
-    const warnings: Warning[] = [];
+    }>;
+  }> {
+    const { omitSet, sustMap } = this.parseRepetirResoluciones(dto);
+    const warnings: Array<{
+      index: number;
+      servicioId: string;
+      motivo: 'inexistente' | 'inactivo';
+    }> = [];
     const items: ItemCotizacion[] = [];
     let total = 0;
 
@@ -645,8 +654,9 @@ export class CotizacionesService {
         const item: any = {
           servicioId: servicio._id || servicio.id,
           nombreServicioSnapshot:
-            String(raw.nombreServicioSnapshot || servicio.nombre || '').trim() ||
-            servicio.nombre,
+            String(
+              raw.nombreServicioSnapshot || servicio.nombre || '',
+            ).trim() || servicio.nombre,
           precioUnitarioSnapshot: precio,
           cantidad,
           subtotal,
@@ -678,43 +688,50 @@ export class CotizacionesService {
       }
     }
 
-    if (warnings.length > 0) {
-      throw new HttpException(
-        {
-          statusCode: 400,
-          message:
-            'Hay servicios que requieren exclusión o sustitución',
-          warnings,
-        },
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    return { items, total, warnings };
+  }
 
-    if (items.length < 1) {
-      throw new BadRequestException(
-        'Debe quedar al menos un ítem tras omitir o sustituir',
-      );
-    }
+  private throwRepetirWarnings(
+    warnings: Array<{
+      index: number;
+      servicioId: string;
+      motivo: 'inexistente' | 'inactivo';
+    }>,
+  ): never {
+    throw new HttpException(
+      {
+        statusCode: 400,
+        message: 'Hay servicios que requieren exclusión o sustitución',
+        warnings,
+      },
+      HttpStatus.BAD_REQUEST,
+    );
+  }
 
-    let clienteId: Types.ObjectId | undefined;
+  private async resolveRepetirClienteId(
+    fuente: any,
+    tenantId: Types.ObjectId,
+  ): Promise<Types.ObjectId | undefined> {
     const fuenteClienteId = this.refId(fuente.clienteId);
-    if (fuenteClienteId) {
-      try {
-        const cliente = (await this.clientesService.findOne(
-          fuenteClienteId,
-        )) as any;
-        if (
-          cliente?.tenantId &&
-          String(cliente.tenantId) === String(tenantId) &&
-          cliente.activo !== false
-        ) {
-          clienteId = new Types.ObjectId(fuenteClienteId);
-        }
-      } catch {
-        // omitir clienteId; conservar snapshots de nombre
+    if (!fuenteClienteId) return undefined;
+    try {
+      const cliente = (await this.clientesService.findOne(
+        fuenteClienteId,
+      )) as any;
+      if (
+        cliente?.tenantId &&
+        String(cliente.tenantId) === String(tenantId) &&
+        cliente.activo !== false
+      ) {
+        return new Types.ObjectId(fuenteClienteId);
       }
+    } catch {
+      // omitir clienteId; conservar snapshots de nombre
     }
+    return undefined;
+  }
 
+  private async resolveRepetirIncluirBancarios(fuente: any): Promise<boolean> {
     let incluirDatosBancarios = !!fuente.incluirDatosBancarios;
     if (incluirDatosBancarios) {
       try {
@@ -726,6 +743,146 @@ export class CotizacionesService {
         incluirDatosBancarios = false;
       }
     }
+    return incluirDatosBancarios;
+  }
+
+  private buildRepetirPreviewDto(
+    fuente: any,
+    dto: RepetirCotizacionDto,
+    items: ItemCotizacion[],
+    clienteId?: Types.ObjectId,
+    incluirDatosBancarios?: boolean,
+  ): RepetirCotizacionPreviewDto {
+    const sinVigencia =
+      dto.sinVigencia !== undefined ? !!dto.sinVigencia : !!fuente.sinVigencia;
+    const plantillasSnapshot: PlantillaSnapshot[] = JSON.parse(
+      JSON.stringify(fuente.plantillasSnapshot || []),
+    );
+    const emailsPara = Array.isArray(fuente.emailsPara)
+      ? [...fuente.emailsPara]
+      : [];
+    const emailsCc = Array.isArray(fuente.emailsCc) ? [...fuente.emailsCc] : [];
+
+    const preview: RepetirCotizacionPreviewDto = {
+      items: items.map((it: any) => {
+        const item: RepetirCotizacionPreviewDto['items'][number] = {
+          servicioId: this.refId(it.servicioId) || String(it.servicioId),
+          cantidad: it.cantidad,
+          nombre: it.nombreServicioSnapshot,
+          precioUnitario: it.precioUnitarioSnapshot,
+        };
+        if (it.descripcionServicioSnapshot) {
+          item.descripcion = it.descripcionServicioSnapshot;
+        }
+        return item;
+      }),
+      emailsPara,
+      emailsCc,
+      sinVigencia,
+      incluirDatosBancarios: incluirDatosBancarios ?? false,
+      incluirDescripciones: fuente.incluirDescripciones === true,
+      plantillas: plantillasSnapshot.map((p) => ({
+        plantillaId: this.refId(p.plantillaId) || String(p.plantillaId),
+        nombre: p.nombreSnapshot,
+        secciones: p.secciones,
+      })),
+      moneda: 'MXN',
+    };
+
+    if (clienteId) {
+      preview.clienteId = clienteId.toString();
+    }
+    if (fuente.nombreEmpresa) {
+      preview.nombreEmpresa = String(fuente.nombreEmpresa);
+    }
+    if (fuente.nombreContacto) {
+      preview.nombreContacto = String(fuente.nombreContacto);
+    }
+    if (fuente.emailContacto) {
+      preview.emailContacto = String(fuente.emailContacto);
+    }
+    if (fuente.telefonoContacto) {
+      preview.telefonoContacto = String(fuente.telefonoContacto);
+    }
+    const cargoRepetir = this.trimOrUndef(
+      fuente.cargoContacto != null ? String(fuente.cargoContacto) : undefined,
+    );
+    if (cargoRepetir) {
+      preview.cargoContacto = cargoRepetir;
+    }
+
+    return preview;
+  }
+
+  /**
+   * Preview wizard-ready sin persistir (repetir → cotizador).
+   */
+  async previewRepetirCotizacion(
+    id: string,
+    dto: RepetirCotizacionDto,
+  ): Promise<RepetirCotizacionPreviewDto> {
+    const fuente = (await this.findOne(id)) as any;
+    this.assertFuenteRepetible(fuente);
+
+    const tenantId = this.tenantContext.getTenantId();
+    const { items, warnings } = await this.buildRepetirItems(
+      fuente,
+      dto,
+      tenantId,
+    );
+
+    if (warnings.length > 0) {
+      this.throwRepetirWarnings(warnings);
+    }
+
+    if (items.length < 1) {
+      throw new BadRequestException(
+        'Debe quedar al menos un ítem tras omitir o sustituir',
+      );
+    }
+
+    const [clienteId, incluirDatosBancarios] = await Promise.all([
+      this.resolveRepetirClienteId(fuente, tenantId),
+      this.resolveRepetirIncluirBancarios(fuente),
+    ]);
+
+    return this.buildRepetirPreviewDto(
+      fuente,
+      dto,
+      items,
+      clienteId,
+      incluirDatosBancarios,
+    );
+  }
+
+  async repetirCotizacion(
+    id: string,
+    dto: RepetirCotizacionDto,
+    actor?: EstadoActorJwt,
+  ): Promise<Cotizacion> {
+    const fuente = (await this.findOne(id)) as any;
+    this.assertFuenteRepetible(fuente);
+
+    const tenantId = this.tenantContext.getTenantId();
+    const { items, total, warnings } = await this.buildRepetirItems(
+      fuente,
+      dto,
+      tenantId,
+    );
+
+    if (warnings.length > 0) {
+      this.throwRepetirWarnings(warnings);
+    }
+
+    if (items.length < 1) {
+      throw new BadRequestException(
+        'Debe quedar al menos un ítem tras omitir o sustituir',
+      );
+    }
+
+    const clienteId = await this.resolveRepetirClienteId(fuente, tenantId);
+    const incluirDatosBancarios =
+      await this.resolveRepetirIncluirBancarios(fuente);
 
     const plantillasSnapshot: PlantillaSnapshot[] = JSON.parse(
       JSON.stringify(fuente.plantillasSnapshot || []),
@@ -733,9 +890,7 @@ export class CotizacionesService {
 
     const folio = await this.generateFolio(tenantId);
     const sinVigencia =
-      dto.sinVigencia !== undefined
-        ? !!dto.sinVigencia
-        : !!fuente.sinVigencia;
+      dto.sinVigencia !== undefined ? !!dto.sinVigencia : !!fuente.sinVigencia;
     const { fechaCreacion, fechaVencimiento, estado } =
       await this.resolveVencimiento(
         sinVigencia ? undefined : dto.fechaVencimiento,
@@ -745,9 +900,7 @@ export class CotizacionesService {
     const emailsPara = Array.isArray(fuente.emailsPara)
       ? [...fuente.emailsPara]
       : [];
-    const emailsCc = Array.isArray(fuente.emailsCc)
-      ? [...fuente.emailsCc]
-      : [];
+    const emailsCc = Array.isArray(fuente.emailsCc) ? [...fuente.emailsCc] : [];
 
     const data: any = {
       tenantId,
@@ -841,8 +994,7 @@ export class CotizacionesService {
 
     const magicExpiresAt = this.resolveMagicExpiresAt(cotizacion as any);
     const folio = (cotizacion as any).folio as string;
-    const nombreContacto =
-      (cotizacion as any).nombreContacto || 'Cliente';
+    const nombreContacto = (cotizacion as any).nombreContacto || 'Cliente';
 
     let fromOverride: string | undefined;
     let emisorNombre: string | undefined;
@@ -856,10 +1008,7 @@ export class CotizacionesService {
       );
     }
 
-    const magicToken = await this.issueMagicToken(
-      cotizacionId,
-      magicExpiresAt,
-    );
+    const magicToken = await this.issueMagicToken(cotizacionId, magicExpiresAt);
 
     try {
       await this.emailService.sendAdminQuotationEmail(
@@ -1121,7 +1270,11 @@ export class CotizacionesService {
     }
 
     const cotizacion = await this.cotizacionModel
-      .findOneAndUpdate({ _id: id, tenantId }, { $set: updateData }, { new: true })
+      .findOneAndUpdate(
+        { _id: id, tenantId },
+        { $set: updateData },
+        { new: true },
+      )
       .populate('clienteId')
       .populate('items.servicioId')
       .exec();
@@ -1279,11 +1432,137 @@ export class CotizacionesService {
     return this.cambiarEstadoManual(cotizacionId, 'rechazada', actor);
   }
 
-  async marcarVencida(
+  async marcarVencida(id: string, actor: EstadoActorJwt): Promise<Cotizacion> {
+    return this.cambiarEstadoManual(id, 'vencida', actor);
+  }
+
+  /** Notas internas — solo usuarios AMES; no expuestas en API pública ni PDF. */
+  async agregarNotaInterna(
     id: string,
+    dto: CreateNotaInternaDto,
     actor: EstadoActorJwt,
   ): Promise<Cotizacion> {
-    return this.cambiarEstadoManual(id, 'vencida', actor);
+    assertStrictObjectIdOrNotFound(id, 'Cotización');
+    const tenantId = this.tenantContext.getTenantId();
+    const texto = dto.texto.trim();
+    if (!texto) {
+      throw new BadRequestException('El texto de la nota no puede estar vacío');
+    }
+    const { userId, nombre } = await this.resolveActorNombre(actor);
+    const now = new Date();
+    const cotizacion = await this.cotizacionModel
+      .findOneAndUpdate(
+        { _id: id, tenantId },
+        {
+          $push: {
+            notasInternas: {
+              texto,
+              autorUserId: userId,
+              autorNombre: nombre,
+              createdAt: now,
+            },
+          },
+        },
+        { new: true },
+      )
+      .populate('clienteId')
+      .populate('items.servicioId')
+      .exec();
+    if (!cotizacion) {
+      throw new NotFoundException(`Cotización con ID ${id} no encontrada`);
+    }
+    return cotizacion;
+  }
+
+  async actualizarNotaInterna(
+    id: string,
+    notaId: string,
+    dto: UpdateNotaInternaDto,
+    actor: EstadoActorJwt,
+  ): Promise<Cotizacion> {
+    assertStrictObjectIdOrNotFound(id, 'Cotización');
+    assertStrictObjectIdOrNotFound(notaId, 'Nota');
+    const tenantId = this.tenantContext.getTenantId();
+    const texto = dto.texto.trim();
+    if (!texto) {
+      throw new BadRequestException('El texto de la nota no puede estar vacío');
+    }
+    await this.assertNotaInternaAutor(id, notaId, actor, tenantId);
+    const now = new Date();
+    const cotizacion = await this.cotizacionModel
+      .findOneAndUpdate(
+        {
+          _id: id,
+          tenantId,
+          'notasInternas._id': new Types.ObjectId(notaId),
+        },
+        {
+          $set: {
+            'notasInternas.$.texto': texto,
+            'notasInternas.$.updatedAt': now,
+          },
+        },
+        { new: true },
+      )
+      .populate('clienteId')
+      .populate('items.servicioId')
+      .exec();
+    if (!cotizacion) {
+      throw new NotFoundException(`Nota con ID ${notaId} no encontrada`);
+    }
+    return cotizacion;
+  }
+
+  async eliminarNotaInterna(
+    id: string,
+    notaId: string,
+    actor: EstadoActorJwt,
+  ): Promise<Cotizacion> {
+    assertStrictObjectIdOrNotFound(id, 'Cotización');
+    assertStrictObjectIdOrNotFound(notaId, 'Nota');
+    const tenantId = this.tenantContext.getTenantId();
+    await this.assertNotaInternaAutor(id, notaId, actor, tenantId);
+    const cotizacion = await this.cotizacionModel
+      .findOneAndUpdate(
+        { _id: id, tenantId },
+        { $pull: { notasInternas: { _id: new Types.ObjectId(notaId) } } },
+        { new: true },
+      )
+      .populate('clienteId')
+      .populate('items.servicioId')
+      .exec();
+    if (!cotizacion) {
+      throw new NotFoundException(`Cotización con ID ${id} no encontrada`);
+    }
+    return cotizacion;
+  }
+
+  private async assertNotaInternaAutor(
+    cotizacionId: string,
+    notaId: string,
+    actor: EstadoActorJwt,
+    tenantId: Types.ObjectId,
+  ): Promise<void> {
+    const cotizacion = await this.cotizacionModel
+      .findOne({ _id: cotizacionId, tenantId })
+      .select('notasInternas')
+      .lean()
+      .exec();
+    if (!cotizacion) {
+      throw new NotFoundException(
+        `Cotización con ID ${cotizacionId} no encontrada`,
+      );
+    }
+    const nota = (cotizacion.notasInternas || []).find(
+      (n: any) => String(n._id) === notaId,
+    );
+    if (!nota) {
+      throw new NotFoundException(`Nota con ID ${notaId} no encontrada`);
+    }
+    const { userId } = await this.resolveActorNombre(actor);
+    if (String(nota.autorUserId) !== String(userId)) {
+      throw new ForbiddenException('Solo puede modificar sus propias notas');
+    }
   }
 
   /**
@@ -1427,10 +1706,7 @@ export class CotizacionesService {
         {
           magicToken: token.trim(),
           estado: 'vigente',
-          $or: [
-            { sinVigencia: true },
-            { fechaVencimiento: { $gte: now } },
-          ],
+          $or: [{ sinVigencia: true }, { fechaVencimiento: { $gte: now } }],
         },
         {
           $set: update,
@@ -1522,9 +1798,7 @@ export class CotizacionesService {
       const tid = c.tenantId;
       if (tid) {
         const cfg = await this.tenantConfigService.findByTenantId(
-          tid instanceof Types.ObjectId
-            ? tid
-            : new Types.ObjectId(String(tid)),
+          tid instanceof Types.ObjectId ? tid : new Types.ObjectId(String(tid)),
         );
         const list = Array.isArray(cfg?.correosNotificacion)
           ? cfg.correosNotificacion
@@ -1552,7 +1826,9 @@ export class CotizacionesService {
     const parts = [c.nombreEmpresa, c.nombreContacto]
       .map((x) => (typeof x === 'string' ? x.trim() : ''))
       .filter(Boolean);
-    const solicitanteLabel = parts.length ? parts.join(' / ') : 'Sin solicitante';
+    const solicitanteLabel = parts.length
+      ? parts.join(' / ')
+      : 'Sin solicitante';
 
     await this.emailService.sendInternalDecisionNotification({
       to: recipients,
