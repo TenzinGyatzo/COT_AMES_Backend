@@ -1101,6 +1101,139 @@ describe('CotizacionesService.findAll clienteId (Story 3.7)', () => {
   });
 });
 
+describe('CotizacionesService.findAll creadoPorNombre', () => {
+  const tenantId = new Types.ObjectId();
+  const tenantContext = { getTenantId: jest.fn().mockReturnValue(tenantId) };
+  const aggregateExec = jest.fn();
+  const cotizacionModel: any = {
+    aggregate: jest.fn().mockReturnValue({ exec: aggregateExec }),
+  };
+
+  let service: CotizacionesService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    aggregateExec.mockResolvedValue([{ data: [], totalCount: [{ count: 0 }] }]);
+    service = new CotizacionesService(
+      cotizacionModel as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      tenantContext as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+  });
+
+  function getFacetDataStages(): any[] {
+    const pipeline = cotizacionModel.aggregate.mock.calls[0][0] as any[];
+    const facet = pipeline.find((s) => s.$facet);
+    expect(facet).toBeTruthy();
+    return facet.$facet.data;
+  }
+
+  it('incluye $lookup users y proyecta creadoPorNombre (nombre o email)', async () => {
+    await service.findAll({ page: 1, limit: 10 });
+    const dataStages = getFacetDataStages();
+    const lookup = dataStages.find(
+      (s) => s.$lookup && s.$lookup.from === 'users',
+    );
+    expect(lookup).toBeTruthy();
+    expect(lookup.$lookup.localField).toBe('creadoPorUserId');
+    expect(lookup.$lookup.foreignField).toBe('_id');
+    expect(lookup.$lookup.as).toBe('_creador');
+
+    const project = dataStages.find((s) => s.$project);
+    expect(project).toBeTruthy();
+    expect(project.$project.creadoPorNombre).toEqual(
+      expect.objectContaining({
+        $let: expect.objectContaining({
+          vars: expect.objectContaining({
+            nombreTrim: expect.any(Object),
+            emailTrim: expect.any(Object),
+          }),
+          in: expect.any(Object),
+        }),
+      }),
+    );
+  });
+
+  it('mapea creadoPorNombre desde lookup (happy path)', async () => {
+    const id = new Types.ObjectId();
+    aggregateExec.mockResolvedValue([
+      {
+        data: [
+          {
+            _id: id,
+            folio: 'COT-2024-001',
+            fecha: new Date('2024-01-15T10:00:00.000Z'),
+            montoTotal: 1000,
+            empresa: 'Empresa ABC',
+            nombreSolicitante: 'Juan Pérez',
+            creadoPorNombre: 'María López',
+            rfc: 'ABC123456789',
+            estado: 'vigente',
+          },
+        ],
+        totalCount: [{ count: 1 }],
+      },
+    ]);
+    const result = await service.findAll({ page: 1, limit: 10 });
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0].creadoPorNombre).toBe('María López');
+  });
+
+  it('mapea fallback email cuando no hay nombre de usuario', async () => {
+    const id = new Types.ObjectId();
+    aggregateExec.mockResolvedValue([
+      {
+        data: [
+          {
+            _id: id,
+            folio: 'COT-2024-002',
+            fecha: new Date('2024-01-16T10:00:00.000Z'),
+            montoTotal: 500,
+            empresa: 'Empresa XYZ',
+            nombreSolicitante: 'Ana',
+            creadoPorNombre: 'operador@ames.mx',
+            rfc: 'XYZ987654321',
+            estado: 'vigente',
+          },
+        ],
+        totalCount: [{ count: 1 }],
+      },
+    ]);
+    const result = await service.findAll({ page: 1, limit: 10 });
+    expect(result.data[0].creadoPorNombre).toBe('operador@ames.mx');
+  });
+
+  it('sin creador: creadoPorNombre ausente/undefined y no lanza', async () => {
+    const id = new Types.ObjectId();
+    aggregateExec.mockResolvedValue([
+      {
+        data: [
+          {
+            _id: id,
+            folio: 'COT-LEGACY-001',
+            fecha: new Date('2023-01-01T10:00:00.000Z'),
+            montoTotal: 200,
+            empresa: 'Legacy SA',
+            nombreSolicitante: 'Sin creador',
+            rfc: 'LEG000000000',
+            estado: 'vencida',
+          },
+        ],
+        totalCount: [{ count: 1 }],
+      },
+    ]);
+    const result = await service.findAll({ page: 1, limit: 10 });
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0].creadoPorNombre).toBeUndefined();
+  });
+});
+
 describe('FilterCotizacionDto clienteId (Story 3.7)', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { plainToInstance } = require('class-transformer');

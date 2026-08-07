@@ -39,6 +39,13 @@ export class CotizacionListItemDto {
   })
   nombreSolicitante?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Nombre del usuario AMES que creó/envió la cotización (fallback: email)',
+    example: 'María López',
+  })
+  creadoPorNombre?: string;
+
   @ApiProperty({
     description: 'RFC de la empresa del cliente',
     example: 'ABC123456789',

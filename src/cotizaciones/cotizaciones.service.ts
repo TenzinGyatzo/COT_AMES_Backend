@@ -1158,12 +1158,54 @@ export class CotizacionesService {
           { $skip: skip },
           { $limit: limit },
           {
+            $lookup: {
+              from: 'users',
+              localField: 'creadoPorUserId',
+              foreignField: '_id',
+              as: '_creador',
+            },
+          },
+          {
             $project: {
               folio: 1,
               fecha: '$fechaCreacion',
               montoTotal: '$total',
               empresa: { $ifNull: ['$cliente.empresa', '$nombreEmpresa'] },
               nombreSolicitante: '$nombreContacto',
+              creadoPorNombre: {
+                $let: {
+                  vars: {
+                    nombreTrim: {
+                      $trim: {
+                        input: {
+                          $ifNull: [
+                            { $arrayElemAt: ['$_creador.nombre', 0] },
+                            '',
+                          ],
+                        },
+                      },
+                    },
+                    emailTrim: {
+                      $trim: {
+                        input: { $ifNull: ['$creadoPorEmail', ''] },
+                      },
+                    },
+                  },
+                  in: {
+                    $cond: [
+                      { $gt: [{ $strLenCP: '$$nombreTrim' }, 0] },
+                      '$$nombreTrim',
+                      {
+                        $cond: [
+                          { $gt: [{ $strLenCP: '$$emailTrim' }, 0] },
+                          '$$emailTrim',
+                          null,
+                        ],
+                      },
+                    ],
+                  },
+                },
+              },
               rfc: { $ifNull: ['$cliente.rfc', ''] },
               estado: 1,
               pdfUrl: 1,
@@ -1187,6 +1229,10 @@ export class CotizacionesService {
       montoTotal: item.montoTotal,
       empresa: item.empresa,
       nombreSolicitante: item.nombreSolicitante,
+      ...(typeof item.creadoPorNombre === 'string' &&
+      item.creadoPorNombre.trim()
+        ? { creadoPorNombre: item.creadoPorNombre.trim() }
+        : {}),
       rfc: item.rfc || '',
       estado: item.estado,
       pdfUrl: item.pdfUrl,
