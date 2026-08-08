@@ -143,7 +143,14 @@ export class TotalsMetricDto {
 
   @ApiProperty({
     description:
-      'Tasa de conversión = aceptadas / emitidas (0 si emitidas = 0)',
+      'Cotizaciones en estado cancelada (mismo match de periodo; excluidas del denominador de tasaConversion)',
+    example: 5,
+  })
+  cotizacionesCanceladas: number;
+
+  @ApiProperty({
+    description:
+      'Tasa de conversión = aceptadas / (emitidas − canceladas) (0 si el denominador es 0)',
     example: 0.35,
   })
   tasaConversion: number;

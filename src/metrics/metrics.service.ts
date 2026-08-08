@@ -233,6 +233,7 @@ export class MetricsService {
       cotizacionesTotales,
       aceptadas,
       rechazadas,
+      canceladas,
       ingresos,
     ] = await Promise.all([
       this.cotizacionModel
@@ -330,6 +331,7 @@ export class MetricsService {
       this.cotizacionModel.countDocuments(match),
       this.cotizacionModel.countDocuments(withMatch({ estado: 'aceptada' })),
       this.cotizacionModel.countDocuments(withMatch({ estado: 'rechazada' })),
+      this.cotizacionModel.countDocuments(withMatch({ estado: 'cancelada' })),
       this.cotizacionModel
         .aggregate([
           { $match: withMatch({ estado: 'aceptada' }) },
@@ -339,6 +341,8 @@ export class MetricsService {
     ]);
 
     const emitidas = cotizacionesTotales;
+    // Canceladas no entran al denominador: suelen ser anuladas/sustituidas (p.ej. Repetir), no cierres comerciales.
+    const ofertasValidas = Math.max(0, emitidas - canceladas);
     const result: TotalsMetricDto = {
       cotizacionesHoy,
       cotizacionesMes,
@@ -347,7 +351,8 @@ export class MetricsService {
       cotizacionesEmitidas: emitidas,
       cotizacionesAceptadas: aceptadas,
       cotizacionesRechazadas: rechazadas,
-      tasaConversion: emitidas > 0 ? aceptadas / emitidas : 0,
+      cotizacionesCanceladas: canceladas,
+      tasaConversion: ofertasValidas > 0 ? aceptadas / ofertasValidas : 0,
       ingresosTotales: ingresos[0]?.total || 0,
     };
 

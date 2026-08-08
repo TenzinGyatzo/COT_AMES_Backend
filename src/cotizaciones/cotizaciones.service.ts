@@ -1213,8 +1213,6 @@ export class CotizacionesService {
       ];
       if (estadoMatch) {
         orConditions.push({ estado: estadoMatch });
-      } else {
-        orConditions.push({ estado: searchRegex });
       }
       pipeline.push({ $match: { $or: orConditions } });
     }

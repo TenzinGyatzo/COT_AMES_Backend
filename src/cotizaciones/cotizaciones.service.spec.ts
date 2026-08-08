@@ -1024,6 +1024,36 @@ describe('CotizacionesService.findAll search escape (Story 6.3)', () => {
     );
     expect(empresaCond.nombreEmpresa.$regex).toBe('Empresa\\*');
   });
+
+  it('término corto no matchea por substring de estado', async () => {
+    await service.findAll({ search: 'a', page: 1, limit: 10 });
+    const pipeline = cotizacionModel.aggregate.mock.calls[0][0] as any[];
+    const searchStage = pipeline.find(
+      (s) => s.$match && Array.isArray(s.$match.$or),
+    );
+    expect(searchStage).toBeTruthy();
+    const estadoCond = searchStage.$match.$or.find(
+      (c: any) => Object.prototype.hasOwnProperty.call(c, 'estado'),
+    );
+    expect(estadoCond).toBeUndefined();
+  });
+
+  it('"vigente" (case-insensitive) sí incluye match exacto de estado', async () => {
+    await service.findAll({ search: 'Vigente', page: 1, limit: 10 });
+    const pipeline = cotizacionModel.aggregate.mock.calls[0][0] as any[];
+    const searchStage = pipeline.find(
+      (s) => s.$match && Array.isArray(s.$match.$or),
+    );
+    expect(searchStage).toBeTruthy();
+    const estadoExact = searchStage.$match.$or.find(
+      (c: any) => c.estado === 'vigente',
+    );
+    expect(estadoExact).toEqual({ estado: 'vigente' });
+    const estadoRegex = searchStage.$match.$or.find(
+      (c: any) => c.estado && typeof c.estado === 'object' && c.estado.$regex,
+    );
+    expect(estadoRegex).toBeUndefined();
+  });
 });
 
 describe('CotizacionesService.findAll clienteId (Story 3.7)', () => {

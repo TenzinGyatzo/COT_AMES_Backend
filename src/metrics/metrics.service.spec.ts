@@ -1,3 +1,4 @@
+/// <reference types="jest" />
 import { Types } from 'mongoose';
 import { MetricsService } from './metrics.service';
 
@@ -22,6 +23,7 @@ describe('MetricsService (Story 7.1 / 7.2)', () => {
         countCalls.push(filter);
         if (filter?.estado === 'aceptada') return 4;
         if (filter?.estado === 'rechazada') return 2;
+        if (filter?.estado === 'cancelada') return 0;
         return 10;
       }),
       aggregate: jest.fn().mockImplementation((pipeline: any[]) => {
@@ -42,8 +44,35 @@ describe('MetricsService (Story 7.1 / 7.2)', () => {
     expect(totals.cotizacionesEmitidas).toBe(10);
     expect(totals.cotizacionesAceptadas).toBe(4);
     expect(totals.cotizacionesRechazadas).toBe(2);
+    expect(totals.cotizacionesCanceladas).toBe(0);
     expect(totals.cotizacionesTotales).toBe(10);
     expect(totals.tasaConversion).toBeCloseTo(0.4);
+  });
+
+  it('tasaConversion excluye canceladas del denominador', async () => {
+    ModelCtor.countDocuments.mockImplementation(async (filter: any) => {
+      countCalls.push(filter);
+      if (filter?.estado === 'aceptada') return 4;
+      if (filter?.estado === 'rechazada') return 2;
+      if (filter?.estado === 'cancelada') return 2;
+      return 10;
+    });
+    const totals = await service.getTotalsMetrics();
+    // 4 / (10 − 2) = 0.5
+    expect(totals.cotizacionesCanceladas).toBe(2);
+    expect(totals.tasaConversion).toBeCloseTo(0.5);
+  });
+
+  it('tasaConversion 0 si todas las emitidas están canceladas', async () => {
+    ModelCtor.countDocuments.mockImplementation(async (filter: any) => {
+      countCalls.push(filter);
+      if (filter?.estado === 'aceptada') return 0;
+      if (filter?.estado === 'rechazada') return 0;
+      if (filter?.estado === 'cancelada') return 10;
+      return 10;
+    });
+    const totals = await service.getTotalsMetrics();
+    expect(totals.tasaConversion).toBe(0);
   });
 
   it('filtro fecha acota fechaCreacion en emitidas, aceptadas y rechazadas', async () => {
@@ -64,7 +93,7 @@ describe('MetricsService (Story 7.1 / 7.2)', () => {
     expect(emitidasFilter).toBeDefined();
     expect(String(emitidasFilter.tenantId)).toBe(String(tenantA));
 
-    for (const estado of ['aceptada', 'rechazada'] as const) {
+    for (const estado of ['aceptada', 'rechazada', 'cancelada'] as const) {
       const estadoFilter = countCalls.find(
         (f) =>
           f.estado === estado &&
