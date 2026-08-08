@@ -6,6 +6,7 @@ export const ESTADOS_COTIZACION = [
   'vencida',
   'aceptada',
   'rechazada',
+  'cancelada',
 ] as const;
 
 export type EstadoCotizacion = (typeof ESTADOS_COTIZACION)[number];

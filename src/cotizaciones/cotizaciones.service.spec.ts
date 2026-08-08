@@ -1588,6 +1588,20 @@ describe('CotizacionesService public magic link (Story 6.9)', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('accept cuando cancelada → 400 sin mutar', async () => {
+    doc.estado = 'cancelada';
+    try {
+      await service.aceptarCotizacionByMagicToken(token);
+      fail('expected BadRequestException');
+    } catch (e) {
+      expect(e).toBeInstanceOf(BadRequestException);
+      expect(JSON.stringify((e as BadRequestException).getResponse())).toMatch(
+        /cancelada/i,
+      );
+    }
+    expect(ModelCtor.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
   it('reject simétrico + vencida → 400', async () => {
     ModelCtor.findOneAndUpdate.mockReturnValue({
       exec: jest.fn().mockResolvedValue({
@@ -1739,6 +1753,17 @@ describe('CotizacionesService cambio manual + provenance (Story 6.10)', () => {
     expect(set.fechaAceptacion).toBeNull();
   });
 
+  it('cambiarEstadoManual → cancelada con provenance usuario + fechaEstadoCancelada', async () => {
+    await service.cambiarEstadoManual(String(cotizacionId), 'cancelada', actor);
+    const set = ModelCtor.findOneAndUpdate.mock.calls[0][1].$set;
+    expect(set.estado).toBe('cancelada');
+    expect(set.estadoOrigen).toBe('usuario');
+    expect(set.estadoCambiadoPorNombre).toBe('Edgar');
+    expect(set.fechaEstadoCancelada).toBeInstanceOf(Date);
+    expect(set.fechaAceptacion).toBeNull();
+    expect(set.fechaRechazo).toBeNull();
+  });
+
   it('cambiarEstadoManual → vigente extiende fechaVencimiento + provenance', async () => {
     doc.estado = 'rechazada';
     const before = Date.now();
@@ -1880,6 +1905,28 @@ describe('CotizacionesService markExpiredQuotations (Story 6.11)', () => {
       docs.find((d) => d.fechaVencimiento.getTime() === future.getTime())
         ?.estado,
     ).toBe('vigente');
+  });
+
+  it('cron no modifica cotizaciones canceladas', async () => {
+    const past = new Date('2020-01-01T00:00:00.000Z');
+    const docs = [{ estado: 'cancelada', fechaVencimiento: past }];
+    ModelCtor.updateMany.mockImplementation(
+      (filter: Record<string, any>, update: Record<string, any>) => {
+        const cutoff = filter.fechaVencimiento?.$lt as Date;
+        const matched = docs.filter(
+          (d) =>
+            d.estado === filter.estado &&
+            d.fechaVencimiento.getTime() < cutoff.getTime(),
+        );
+        for (const d of matched) {
+          d.estado = update.$set.estado;
+        }
+        return Promise.resolve({ modifiedCount: matched.length });
+      },
+    );
+    const count = await service.markExpiredQuotations();
+    expect(count).toBe(0);
+    expect(docs[0].estado).toBe('cancelada');
   });
 
   it('excluye sinVigencia del cron (Story 6.15)', async () => {
@@ -2047,7 +2094,9 @@ describe('CotizacionesService repetirCotizacion (Story 6.12)', () => {
     expect(savedPayload.items[0].cantidad).toBe(2);
     expect(savedPayload.emailsPara).toEqual(['ana@acme.com']);
     expect(savedPayload.plantillasSnapshot[0].nombreSnapshot).toBe('Comercial');
-    expect(created.folio).toBe('COT-2026-0099');
+    expect((created.cotizacion as any).folio).toBe('COT-2026-0099');
+    expect(created.originalCancelada).toBe(false);
+    expect(created.originalCancelacionError).toBeUndefined();
     // fuente no mutada vía update
     expect(ModelCtor.updateMany).toBeUndefined();
   });
@@ -2199,6 +2248,83 @@ describe('CotizacionesService repetirCotizacion (Story 6.12)', () => {
       service.repetirCotizacion(fuenteId, { modoPrecios: 'originales' }),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(savedPayload).toBeNull();
+  });
+
+  it('cancelarOriginal=true cancela fuente vía cambiarEstadoManual', async () => {
+    const actor = { _id: new Types.ObjectId().toString(), email: 'a@ames.test' };
+    const cancelSpy = jest
+      .spyOn(service, 'cambiarEstadoManual')
+      .mockResolvedValue({ estado: 'cancelada' } as any);
+    jest.spyOn(service, 'findOne').mockImplementation(async (id: string) => {
+      if (String(id) === String(fuenteId) || id === fuenteId) {
+        return { ...fuenteBase(), estado: 'vigente' } as any;
+      }
+      return {
+        _id: id,
+        folio: 'COT-2026-0099',
+        estado: 'vigente',
+      } as any;
+    });
+
+    const result = await service.repetirCotizacion(
+      fuenteId,
+      { modoPrecios: 'originales', cancelarOriginal: true },
+      actor,
+    );
+    expect((result.cotizacion as any).folio).toBe('COT-2026-0099');
+    expect(result.originalCancelada).toBe(true);
+    expect(result.originalCancelacionError).toBeUndefined();
+    expect(cancelSpy).toHaveBeenCalledWith(fuenteId, 'cancelada', actor);
+  });
+
+  it('cancelarOriginal omitido no muta la fuente', async () => {
+    const cancelSpy = jest.spyOn(service, 'cambiarEstadoManual');
+    const result = await service.repetirCotizacion(fuenteId, {
+      modoPrecios: 'originales',
+    });
+    expect(result.originalCancelada).toBe(false);
+    expect(cancelSpy).not.toHaveBeenCalled();
+  });
+
+  it('cancelarOriginal desde fuente ya cancelada es no-op', async () => {
+    const cancelSpy = jest.spyOn(service, 'cambiarEstadoManual');
+    jest.spyOn(service, 'findOne').mockImplementation(async (id: string) => {
+      if (String(id) === String(fuenteId) || id === fuenteId) {
+        return { ...fuenteBase(), estado: 'cancelada' } as any;
+      }
+      return { _id: id, folio: 'COT-2026-0099', estado: 'vigente' } as any;
+    });
+    const result = await service.repetirCotizacion(
+      fuenteId,
+      { modoPrecios: 'originales', cancelarOriginal: true },
+      { _id: new Types.ObjectId().toString(), email: 'a@ames.test' },
+    );
+    expect(result.originalCancelada).toBe(true);
+    expect(result.originalCancelacionError).toBeUndefined();
+    expect(cancelSpy).not.toHaveBeenCalled();
+  });
+
+  it('create OK + fallo al cancelar → envelope parcial sin rollback', async () => {
+    const actor = { _id: new Types.ObjectId().toString(), email: 'a@ames.test' };
+    jest.spyOn(service, 'findOne').mockImplementation(async (id: string) => {
+      if (String(id) === String(fuenteId) || id === fuenteId) {
+        return { ...fuenteBase(), estado: 'vigente' } as any;
+      }
+      return { _id: id, folio: 'COT-2026-0099', estado: 'vigente' } as any;
+    });
+    jest
+      .spyOn(service, 'cambiarEstadoManual')
+      .mockRejectedValue(new BadRequestException('lock conflict'));
+
+    const result = await service.repetirCotizacion(
+      fuenteId,
+      { modoPrecios: 'originales', cancelarOriginal: true },
+      actor,
+    );
+    expect(savedPayload).not.toBeNull();
+    expect((result.cotizacion as any).folio).toBe('COT-2026-0099');
+    expect(result.originalCancelada).toBe(false);
+    expect(result.originalCancelacionError).toMatch(/lock conflict|cancelar/i);
   });
 });
 

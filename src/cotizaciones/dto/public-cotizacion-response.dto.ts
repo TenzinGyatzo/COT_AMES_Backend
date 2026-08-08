@@ -30,7 +30,9 @@ export class PublicCotizacionResponseDto {
   @ApiProperty()
   folio: string;
 
-  @ApiProperty({ enum: ['vigente', 'vencida', 'aceptada', 'rechazada'] })
+  @ApiProperty({
+    enum: ['vigente', 'vencida', 'aceptada', 'rechazada', 'cancelada'],
+  })
   estado: string;
 
   @ApiProperty()

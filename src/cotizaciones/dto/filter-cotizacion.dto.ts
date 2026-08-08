@@ -13,11 +13,11 @@ import { Type } from 'class-transformer';
 export class FilterCotizacionDto {
   @ApiPropertyOptional({
     description: 'Filtrar por estado',
-    enum: ['vigente', 'vencida', 'aceptada', 'rechazada'],
+    enum: ['vigente', 'vencida', 'aceptada', 'rechazada', 'cancelada'],
     example: 'vigente',
   })
   @IsOptional()
-  @IsEnum(['vigente', 'vencida', 'aceptada', 'rechazada'])
+  @IsEnum(['vigente', 'vencida', 'aceptada', 'rechazada', 'cancelada'])
   estado?: string;
 
   @ApiPropertyOptional({

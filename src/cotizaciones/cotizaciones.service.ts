@@ -45,6 +45,7 @@ import { UsersService } from '../users/users.service';
 import { ESTADOS_COTIZACION, EstadoCotizacion } from './dto/cambiar-estado.dto';
 import { RepetirCotizacionDto } from './dto/repetir-cotizacion.dto';
 import { RepetirCotizacionPreviewDto } from './dto/repetir-cotizacion-preview.dto';
+import { RepetirCotizacionResponseDto } from './dto/repetir-cotizacion-response.dto';
 import { CreateNotaInternaDto } from './dto/create-nota-interna.dto';
 import { UpdateNotaInternaDto } from './dto/update-nota-interna.dto';
 
@@ -510,7 +511,7 @@ export class CotizacionesService {
   private assertFuenteRepetible(fuente: any): void {
     if (!ESTADOS_COTIZACION.includes(fuente.estado as EstadoCotizacion)) {
       throw new BadRequestException(
-        'Solo se pueden repetir cotizaciones vigentes, vencidas, aceptadas o rechazadas',
+        'Solo se pueden repetir cotizaciones vigentes, vencidas, aceptadas, rechazadas o canceladas',
       );
     }
   }
@@ -859,7 +860,7 @@ export class CotizacionesService {
     id: string,
     dto: RepetirCotizacionDto,
     actor?: EstadoActorJwt,
-  ): Promise<Cotizacion> {
+  ): Promise<RepetirCotizacionResponseDto> {
     const fuente = (await this.findOne(id)) as any;
     this.assertFuenteRepetible(fuente);
 
@@ -954,7 +955,73 @@ export class CotizacionesService {
       throw new BadRequestException('Error al crear la cotización repetida');
     }
 
-    return this.findOne((saved as any)._id.toString());
+    const cotizacion = await this.findOne((saved as any)._id.toString());
+    let originalCancelada = false;
+    let originalCancelacionError: string | undefined;
+
+    if (dto.cancelarOriginal === true) {
+      try {
+        const fuenteActual = (await this.findOne(id)) as any;
+        if (fuenteActual.estado === 'cancelada') {
+          originalCancelada = true;
+        } else if (!actor) {
+          originalCancelacionError =
+            'No se pudo cancelar la cotización original: falta actor autenticado';
+        } else {
+          await this.cambiarEstadoManual(id, 'cancelada', actor);
+          originalCancelada = true;
+        }
+      } catch (err) {
+        // Carrera: otra petición pudo dejarla cancelada; tratar como éxito idempotente.
+        try {
+          const again = (await this.findOne(id)) as any;
+          if (again?.estado === 'cancelada') {
+            originalCancelada = true;
+          } else {
+            originalCancelada = false;
+            originalCancelacionError = this.extractErrorMessage(
+              err,
+              'No se pudo cancelar la cotización original',
+            );
+            this.logger.warn(
+              `Repetir OK pero falló cancelar original ${id}: ${originalCancelacionError}`,
+            );
+          }
+        } catch {
+          originalCancelada = false;
+          originalCancelacionError = this.extractErrorMessage(
+            err,
+            'No se pudo cancelar la cotización original',
+          );
+          this.logger.warn(
+            `Repetir OK pero falló cancelar original ${id}: ${originalCancelacionError}`,
+          );
+        }
+      }
+    }
+
+    const response: RepetirCotizacionResponseDto = {
+      cotizacion,
+      originalCancelada,
+    };
+    if (originalCancelacionError) {
+      response.originalCancelacionError = originalCancelacionError;
+    }
+    return response;
+  }
+
+  private extractErrorMessage(err: unknown, fallback: string): string {
+    if (err instanceof HttpException) {
+      const body = err.getResponse();
+      if (typeof body === 'string') return body;
+      if (body && typeof body === 'object' && 'message' in body) {
+        const msg = (body as { message?: string | string[] }).message;
+        if (Array.isArray(msg)) return msg.join(', ');
+        if (typeof msg === 'string' && msg.trim()) return msg;
+      }
+    }
+    if (err instanceof Error && err.message.trim()) return err.message;
+    return fallback;
   }
 
   /**
@@ -1132,6 +1199,7 @@ export class CotizacionesService {
         vencida: 'vencida',
         aceptada: 'aceptada',
         rechazada: 'rechazada',
+        cancelada: 'cancelada',
       };
       const searchLower = term.toLowerCase();
       const estadoMatch = estadoMap[searchLower];
@@ -1374,6 +1442,10 @@ export class CotizacionesService {
       update.fechaAceptacion = null;
     } else if (nuevoEstado === 'vencida') {
       update.fechaEstadoVencida = now;
+      update.fechaAceptacion = null;
+      update.fechaRechazo = null;
+    } else if (nuevoEstado === 'cancelada') {
+      update.fechaEstadoCancelada = now;
       update.fechaAceptacion = null;
       update.fechaRechazo = null;
     } else if (nuevoEstado === 'vigente') {
@@ -1713,6 +1785,12 @@ export class CotizacionesService {
       );
     }
 
+    if (cotizacion.estado === 'cancelada') {
+      throw new BadRequestException(
+        'No se puede responder una cotización cancelada',
+      );
+    }
+
     if (cotizacion.estado === 'vencida') {
       throw new BadRequestException(
         'No se puede responder una cotización vencida',
@@ -1770,6 +1848,11 @@ export class CotizacionesService {
       const again = await this.findOneByMagicTokenRaw(token);
       if (again.estado === decision) {
         return this.toPublicDto(again, { alreadyResponded: true });
+      }
+      if (again.estado === 'cancelada') {
+        throw new BadRequestException(
+          'No se puede responder una cotización cancelada',
+        );
       }
       if (again.estado === 'vencida') {
         throw new BadRequestException(

@@ -77,4 +77,13 @@ export class UpdateCotizacionDto {
   @IsDate()
   @Type(() => Date)
   fechaEstadoAceptada?: Date;
+
+  @ApiPropertyOptional({
+    description: 'Fecha cuando se marcó como cancelada',
+    example: '2024-01-26T10:00:00.000Z',
+  })
+  @IsOptional()
+  @IsDate()
+  @Type(() => Date)
+  fechaEstadoCancelada?: Date;
 }

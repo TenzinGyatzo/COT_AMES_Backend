@@ -114,7 +114,7 @@ export class Cotizacion {
 
   @Prop({
     type: String,
-    enum: ['vigente', 'vencida', 'aceptada', 'rechazada'],
+    enum: ['vigente', 'vencida', 'aceptada', 'rechazada', 'cancelada'],
     default: 'vigente',
   })
   estado: string;
@@ -136,6 +136,9 @@ export class Cotizacion {
 
   @Prop()
   fechaEstadoRechazada?: Date;
+
+  @Prop()
+  fechaEstadoCancelada?: Date;
 
   @Prop()
   pdfUrl?: string;

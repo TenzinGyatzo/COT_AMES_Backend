@@ -241,7 +241,7 @@ export class CotizacionesController {
   @ApiQuery({
     name: 'estado',
     required: false,
-    enum: ['vigente', 'vencida', 'aceptada', 'rechazada'],
+    enum: ['vigente', 'vencida', 'aceptada', 'rechazada', 'cancelada'],
     description: 'Filtrar por estado de la cotización',
   })
   @ApiQuery({
@@ -363,10 +363,14 @@ export class CotizacionesController {
   @ApiOperation({
     summary: 'Repetir cotización (Story 6.12)',
     description:
-      'Clona con precios originales (snapshot) o actualizados (catálogo). Folio nuevo, vigente, vigencia recalculada. Sin correo ni magic link. Si hay servicios inexistentes/inactivos (modo actualizados), responde 400 con warnings para omitir o sustituir.',
+      'Clona con precios originales (snapshot) o actualizados (catálogo). Folio nuevo, vigente, vigencia recalculada. Sin correo ni magic link. Si hay servicios inexistentes/inactivos (modo actualizados), responde 400 con warnings para omitir o sustituir. Con cancelarOriginal=true cancela la fuente tras crear (sin rollback si falla la cancelación).',
   })
   @ApiParam({ name: 'id', description: 'ID de la cotización fuente' })
-  @ApiResponse({ status: 201, description: 'Cotización repetida creada' })
+  @ApiResponse({
+    status: 201,
+    description:
+      'Envelope: cotizacion (nueva), originalCancelada, originalCancelacionError?',
+  })
   @ApiResponse({
     status: 400,
     description: 'Warnings de servicios o body inválido',

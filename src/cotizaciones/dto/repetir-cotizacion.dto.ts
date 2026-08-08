@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayUnique,
   IsArray,
@@ -12,6 +12,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import { parseOptionalQueryBoolean } from '../../common/parse-optional-query-boolean';
 
 export const MODOS_PRECIOS_REPETIR = ['originales', 'actualizados'] as const;
 export type ModoPreciosRepetir = (typeof MODOS_PRECIOS_REPETIR)[number];
@@ -76,4 +77,14 @@ export class RepetirCotizacionDto {
   @IsOptional()
   @IsBoolean()
   sinVigencia?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Si true, tras crear la nueva cancela la fuente vía cambiarEstadoManual (provenance usuario). Default false. Si la fuente ya está cancelada, no-op.',
+    example: false,
+  })
+  @IsOptional()
+  @Transform(parseOptionalQueryBoolean)
+  @IsBoolean()
+  cancelarOriginal?: boolean;
 }

@@ -54,7 +54,7 @@ export class CotizacionListItemDto {
 
   @ApiProperty({
     description: 'Estado de la cotización',
-    enum: ['vigente', 'vencida', 'aceptada', 'rechazada'],
+    enum: ['vigente', 'vencida', 'aceptada', 'rechazada', 'cancelada'],
     example: 'vigente',
   })
   estado: string;
