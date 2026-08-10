@@ -3,8 +3,11 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
   OnModuleInit,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -15,7 +18,18 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { FilterUserDto } from './dto/filter-user.dto';
 import { Roles } from '../auth/enums/roles.enum';
 import { TenantsService } from '../tenants/tenants.service';
-import { assertStrictObjectIdOrNotFound } from '../common/strict-object-id';
+import {
+  assertStrictObjectIdOrNotFound,
+  isStrictObjectId,
+} from '../common/strict-object-id';
+
+/** Actor de gestión de usuarios (Story 2.3). Ausente = callers internos de confianza. */
+export type UsersActor = {
+  rol: string;
+  tenantId?: string | null;
+  /** Tenant de soporte (X-Tenant-Id) para admin_sistema. */
+  supportTenantId?: string | null;
+};
 
 @Injectable()
 export class UsersService implements OnModuleInit {
@@ -23,6 +37,7 @@ export class UsersService implements OnModuleInit {
 
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @Inject(forwardRef(() => TenantsService))
     private readonly tenantsService: TenantsService,
   ) {}
 
@@ -85,7 +100,38 @@ export class UsersService implements OnModuleInit {
     }
   }
 
-  /** Valida reglas AD-8: operativo ↔ 1 tenant activo; admin sin tenant fijo. */
+  /** Impide dejar un tenant sin ningún admin_tenant activo. */
+  private async assertNotRemovingLastActiveAdminTenant(
+    current: UserDocument,
+    opts: { nextRol?: string; nextActivo?: boolean },
+  ): Promise<void> {
+    if (current.rol !== Roles.ADMIN_TENANT || !current.activo) {
+      return;
+    }
+    const demoting =
+      opts.nextRol !== undefined && opts.nextRol !== Roles.ADMIN_TENANT;
+    const deactivating = opts.nextActivo === false;
+    if (!demoting && !deactivating) {
+      return;
+    }
+    if (!current.tenantId) {
+      return;
+    }
+    const activeAdmins = await this.userModel
+      .countDocuments({
+        rol: Roles.ADMIN_TENANT,
+        tenantId: current.tenantId,
+        activo: true,
+      })
+      .exec();
+    if (activeAdmins <= 1) {
+      throw new BadRequestException(
+        'No se puede desactivar ni degradar el último administrador de la administración activo',
+      );
+    }
+  }
+
+  /** Valida AD-11: operativo|admin_tenant ↔ 1 tenant activo; admin_sistema sin tenant fijo. */
   private async resolveTenantForRole(
     rol: string,
     tenantId?: string | null,
@@ -99,10 +145,12 @@ export class UsersService implements OnModuleInit {
       return undefined;
     }
 
-    if (rol === Roles.OPERATIVO) {
+    if (rol === Roles.OPERATIVO || rol === Roles.ADMIN_TENANT) {
       if (!tenantId) {
         throw new BadRequestException(
-          'El usuario operativo requiere exactamente un tenantId',
+          rol === Roles.ADMIN_TENANT
+            ? 'El usuario admin_tenant requiere exactamente un tenantId'
+            : 'El usuario operativo requiere exactamente un tenantId',
         );
       }
       const tenant = await this.tenantsService.findById(tenantId);
@@ -115,7 +163,104 @@ export class UsersService implements OnModuleInit {
     throw new BadRequestException('Rol no válido');
   }
 
-  async create(createUserDto: CreateUserDto): Promise<UserDocument> {
+  private assertAssignableRole(actor: UsersActor, rol: string): void {
+    if (actor.rol === Roles.ADMIN_TENANT) {
+      if (rol === Roles.ADMIN_SISTEMA) {
+        throw new ForbiddenException(
+          'No puede asignar el rol de administrador de sistema',
+        );
+      }
+      if (rol !== Roles.OPERATIVO && rol !== Roles.ADMIN_TENANT) {
+        throw new BadRequestException('Rol no válido');
+      }
+    }
+  }
+
+  /** Tenant anclado al crear según actor (AD-2 / AD-11 / Story 2.3). */
+  private resolveCreateTenantIdForActor(
+    actor: UsersActor,
+    dto: CreateUserDto,
+  ): string | undefined {
+    if (actor.rol === Roles.ADMIN_TENANT) {
+      if (!actor.tenantId) {
+        throw new ForbiddenException('Usuario admin_tenant sin tenant asignado');
+      }
+      const forced = String(actor.tenantId);
+      if (dto.tenantId && dto.tenantId !== forced) {
+        throw new ForbiddenException('No puede asignar una administración ajena');
+      }
+      return forced;
+    }
+
+    if (actor.rol === Roles.ADMIN_SISTEMA) {
+      if (dto.rol === Roles.ADMIN_SISTEMA) {
+        return undefined;
+      }
+      const support = actor.supportTenantId;
+      if (!support) {
+        throw new BadRequestException(
+          'Seleccione una administración (X-Tenant-Id) para crear usuarios del tenant',
+        );
+      }
+      if (dto.tenantId && dto.tenantId !== support) {
+        throw new ForbiddenException(
+          'No puede asignar una administración distinta a la activa',
+        );
+      }
+      return support;
+    }
+
+    throw new ForbiddenException('No autorizado para gestionar usuarios');
+  }
+
+  private assertCanManage(actor: UsersActor, target: UserDocument): void {
+    if (actor.rol === Roles.ADMIN_TENANT) {
+      if (!actor.tenantId) {
+        throw new ForbiddenException('Usuario admin_tenant sin tenant asignado');
+      }
+      if (target.rol === Roles.ADMIN_SISTEMA) {
+        throw new NotFoundException(
+          `Usuario con ID ${String(target._id)} no encontrado`,
+        );
+      }
+      if (
+        !target.tenantId ||
+        String(target.tenantId) !== String(actor.tenantId)
+      ) {
+        throw new NotFoundException(
+          `Usuario con ID ${String(target._id)} no encontrado`,
+        );
+      }
+      return;
+    }
+
+    if (actor.rol === Roles.ADMIN_SISTEMA) {
+      if (target.rol === Roles.ADMIN_SISTEMA) {
+        return;
+      }
+      if (!actor.supportTenantId) {
+        throw new BadRequestException(
+          'Seleccione una administración (X-Tenant-Id) para gestionar usuarios del tenant',
+        );
+      }
+      if (
+        !target.tenantId ||
+        String(target.tenantId) !== String(actor.supportTenantId)
+      ) {
+        throw new NotFoundException(
+          `Usuario con ID ${String(target._id)} no encontrado`,
+        );
+      }
+      return;
+    }
+
+    throw new ForbiddenException('No autorizado para gestionar usuarios');
+  }
+
+  async create(
+    createUserDto: CreateUserDto,
+    actor?: UsersActor,
+  ): Promise<UserDocument> {
     const email = this.normalizeEmail(createUserDto.email);
     const rol = createUserDto.rol;
     if (!rol) {
@@ -127,15 +272,20 @@ export class UsersService implements OnModuleInit {
       throw new BadRequestException('El nombre es obligatorio');
     }
 
+    if (actor) {
+      this.assertAssignableRole(actor, rol);
+    }
+
     const existingUser = await this.userModel.findOne({ email }).exec();
     if (existingUser) {
       throw new ConflictException('El email ya está registrado');
     }
 
-    const tenantObjectId = await this.resolveTenantForRole(
-      rol,
-      createUserDto.tenantId,
-    );
+    const tenantIdForRole = actor
+      ? this.resolveCreateTenantIdForActor(actor, createUserDto)
+      : createUserDto.tenantId;
+
+    const tenantObjectId = await this.resolveTenantForRole(rol, tenantIdForRole);
 
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(createUserDto.password, saltRounds);
@@ -159,7 +309,10 @@ export class UsersService implements OnModuleInit {
     }
   }
 
-  async findAll(filters?: FilterUserDto): Promise<User[]> {
+  async findAll(
+    filters?: FilterUserDto,
+    actor?: UsersActor,
+  ): Promise<User[]> {
     const query: Record<string, unknown> = {};
 
     if (filters?.activo !== undefined) {
@@ -178,6 +331,35 @@ export class UsersService implements OnModuleInit {
         { nombre: { $regex: term, $options: 'i' } },
         { email: { $regex: term.toLowerCase(), $options: 'i' } },
       ];
+    }
+
+    if (actor?.rol === Roles.ADMIN_TENANT) {
+      if (!actor.tenantId || !isStrictObjectId(String(actor.tenantId))) {
+        throw new ForbiddenException('Usuario admin_tenant sin tenant asignado');
+      }
+      query.tenantId = new Types.ObjectId(String(actor.tenantId));
+    } else if (actor?.rol === Roles.ADMIN_SISTEMA) {
+      if (!actor.supportTenantId) {
+        // Sin administración activa: no devolver catálogo global (AC4 / banner 2.2).
+        return [];
+      }
+      if (!isStrictObjectId(String(actor.supportTenantId))) {
+        throw new BadRequestException('X-Tenant-Id inválido');
+      }
+      const supportOid = new Types.ObjectId(String(actor.supportTenantId));
+      // Tenant activo + peers plataforma (sin tenant fijo); no mezclar otros tenants.
+      const scopeOr = [
+        { tenantId: supportOid },
+        { rol: Roles.ADMIN_SISTEMA, tenantId: { $exists: false } },
+        { rol: Roles.ADMIN_SISTEMA, tenantId: null },
+      ];
+      if (query.$or) {
+        const searchOr = query.$or;
+        delete query.$or;
+        query.$and = [{ $or: scopeOr }, { $or: searchOr }];
+      } else {
+        query.$or = scopeOr;
+      }
     }
 
     return await this.userModel
@@ -209,15 +391,35 @@ export class UsersService implements OnModuleInit {
     return user;
   }
 
+  /** findById + scoping de gestión (Story 2.3). */
+  async findManagedById(id: string, actor: UsersActor): Promise<UserDocument> {
+    const user = await this.findById(id);
+    this.assertCanManage(actor, user);
+    return user;
+  }
+
   async update(
     id: string,
     updateUserDto: UpdateUserDto,
+    actor?: UsersActor,
   ): Promise<UserDocument> {
     assertStrictObjectIdOrNotFound(id, 'Usuario');
     const current = await this.findById(id);
 
+    if (actor) {
+      this.assertCanManage(actor, current);
+    }
+
     const nextRol = updateUserDto.rol ?? current.rol;
+    if (actor && updateUserDto.rol !== undefined) {
+      this.assertAssignableRole(actor, updateUserDto.rol);
+    }
+
     await this.assertNotRemovingLastActiveAdmin(current, {
+      nextRol: updateUserDto.rol,
+      nextActivo: updateUserDto.activo,
+    });
+    await this.assertNotRemovingLastActiveAdminTenant(current, {
       nextRol: updateUserDto.rol,
       nextActivo: updateUserDto.activo,
     });
@@ -226,13 +428,47 @@ export class UsersService implements OnModuleInit {
       updateUserDto,
       'tenantId',
     );
-    const nextTenantRaw = tenantProvided
+    let nextTenantRaw = tenantProvided
       ? updateUserDto.tenantId
       : current.tenantId
         ? String(current.tenantId)
         : undefined;
 
-    // Al pasar a admin, limpiar tenant aunque no venga en body.
+    // Actor ancla tenant: admin_tenant siempre el suyo; sistema con soporte fuerza el activo.
+    if (actor?.rol === Roles.ADMIN_TENANT) {
+      if (!actor.tenantId) {
+        throw new ForbiddenException('Usuario admin_tenant sin tenant asignado');
+      }
+      if (
+        tenantProvided &&
+        updateUserDto.tenantId != null &&
+        String(updateUserDto.tenantId) !== String(actor.tenantId)
+      ) {
+        throw new ForbiddenException('No puede asignar una administración ajena');
+      }
+      nextTenantRaw = String(actor.tenantId);
+    } else if (
+      actor?.rol === Roles.ADMIN_SISTEMA &&
+      nextRol !== Roles.ADMIN_SISTEMA
+    ) {
+      if (!actor.supportTenantId) {
+        throw new BadRequestException(
+          'Seleccione una administración (X-Tenant-Id) para gestionar usuarios del tenant',
+        );
+      }
+      if (
+        tenantProvided &&
+        updateUserDto.tenantId != null &&
+        String(updateUserDto.tenantId) !== String(actor.supportTenantId)
+      ) {
+        throw new ForbiddenException(
+          'No puede asignar una administración distinta a la activa',
+        );
+      }
+      nextTenantRaw = String(actor.supportTenantId);
+    }
+
+    // Al pasar a admin_sistema, limpiar tenant aunque no venga en body.
     let resolvedTenant: Types.ObjectId | undefined | null;
     if (nextRol === Roles.ADMIN_SISTEMA) {
       await this.resolveTenantForRole(
@@ -319,10 +555,16 @@ export class UsersService implements OnModuleInit {
     return updatedUser;
   }
 
-  async softDelete(id: string): Promise<UserDocument> {
+  async softDelete(id: string, actor?: UsersActor): Promise<UserDocument> {
     assertStrictObjectIdOrNotFound(id, 'Usuario');
     const user = await this.findById(id);
+    if (actor) {
+      this.assertCanManage(actor, user);
+    }
     await this.assertNotRemovingLastActiveAdmin(user, { nextActivo: false });
+    await this.assertNotRemovingLastActiveAdminTenant(user, {
+      nextActivo: false,
+    });
     user.activo = false;
     return await user.save();
   }

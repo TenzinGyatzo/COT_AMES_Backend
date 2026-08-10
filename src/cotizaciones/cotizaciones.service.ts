@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   HttpException,
   HttpStatus,
+  InternalServerErrorException,
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -33,7 +34,11 @@ import { PlantillasService } from '../plantillas/plantillas.service';
 import { EmailService } from './services/email.service';
 import { TenantContextService } from '../tenants/tenant-context.service';
 import { TenantConfigService } from '../tenants/tenant-config.service';
+import { TenantsService } from '../tenants/tenants.service';
+import { TenantSecretsKeyError } from '../tenants/tenant-secrets.crypto';
 import { hasBancariosUtiles } from '../tenants/bancarios.util';
+import { TenantEmailNotConfiguredError } from '../emails/tenant-email-not-configured.error';
+import { TenantInactiveForOutboundError } from '../emails/tenant-inactive-for-outbound.error';
 import { CountersService } from '../counters/counters.service';
 import {
   assertStrictObjectIdOrNotFound,
@@ -70,6 +75,7 @@ export class CotizacionesService {
     private countersService: CountersService,
     private plantillasService: PlantillasService,
     private usersService: UsersService,
+    private tenantsService: TenantsService,
   ) {}
 
   private escapeRegex(term: string): string {
@@ -1063,15 +1069,46 @@ export class CotizacionesService {
     const folio = (cotizacion as any).folio as string;
     const nombreContacto = (cotizacion as any).nombreContacto || 'Cliente';
 
+    const emisorTenantId = (cotizacion as any).tenantId;
+    if (!emisorTenantId) {
+      throw new BadRequestException(
+        'La cotización no tiene tenant asociado; no se puede enviar correo',
+      );
+    }
+    const emisorOid =
+      emisorTenantId instanceof Types.ObjectId
+        ? emisorTenantId
+        : new Types.ObjectId(String(emisorTenantId));
+
+    // AD-14 / Story 3.4 — bloquear envío si el tenant emisor está inactivo (antes del magic token).
+    const emisorTenant = await this.tenantsService.findById(String(emisorOid));
+    if (!emisorTenant || !emisorTenant.activo) {
+      throw new ForbiddenException(
+        'No se puede enviar: el tenant está inactivo.',
+      );
+    }
+
+    // From/branding del tenant de la cotización (no ALS / getForRequest).
     let fromOverride: string | undefined;
     let emisorNombre: string | undefined;
     try {
-      const cfg = await this.tenantConfigService.getForRequest();
-      fromOverride = cfg.emailRemitente || undefined;
-      emisorNombre = cfg.branding?.razonSocial || undefined;
+      const cfg = await this.tenantConfigService.findByTenantId(emisorOid);
+      fromOverride = cfg?.emailRemitente || undefined;
+      emisorNombre = cfg?.branding?.razonSocial || undefined;
     } catch (cfgErr) {
       this.logger.warn(
-        `No se pudo leer emailRemitente del tenant para cotización ${folio}; se usará EMAIL_FROM: ${cfgErr}`,
+        `No se pudo leer config email del tenant emisor para cotización ${folio}: ${
+          cfgErr instanceof Error ? cfgErr.message : cfgErr
+        }`,
+      );
+    }
+
+    // Story 3.4 — sin credenciales: fallar antes del magic token (simétrico a AD-14).
+    const outboundAuth =
+      await this.tenantConfigService.getOutboundSmtpAuth(emisorOid);
+    if (!outboundAuth) {
+      throw new BadRequestException(
+        'No se puede enviar: el correo del tenant no está configurado. Un administrador puede configurarlo en Configuración.',
       );
     }
 
@@ -1079,6 +1116,7 @@ export class CotizacionesService {
 
     try {
       await this.emailService.sendAdminQuotationEmail(
+        emisorOid,
         emailsPara,
         nombreContacto,
         folio,
@@ -1104,8 +1142,25 @@ export class CotizacionesService {
         );
       }
       this.logger.error(
-        `Fallo SMTP cotización ${folio}: ${err instanceof Error ? err.message : err}`,
+        `Fallo SMTP cotización ${folio}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
       );
+      if (err instanceof TenantSecretsKeyError) {
+        throw new InternalServerErrorException(
+          'No se pudo enviar el correo por un error de cifrado en el servidor.',
+        );
+      }
+      if (err instanceof TenantEmailNotConfiguredError) {
+        throw new BadRequestException(
+          'No se puede enviar: el correo del tenant no está configurado. Un administrador puede configurarlo en Configuración.',
+        );
+      }
+      if (err instanceof TenantInactiveForOutboundError) {
+        throw new ForbiddenException(
+          'No se puede enviar: el tenant está inactivo.',
+        );
+      }
       throw new BadRequestException(
         'No se pudo enviar el correo. Verifica la configuración SMTP o intenta de nuevo.',
       );
@@ -1875,8 +1930,14 @@ export class CotizacionesService {
     try {
       await this.notifyRespuestaMagicLink(updated, decision);
     } catch (err) {
+      const safeMsg =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'object' && err && 'message' in err
+            ? String((err as { message?: unknown }).message)
+            : 'error de notificación interna';
       this.logger.error(
-        `Notif interna magic_link falló (${(updated as any).folio}): ${err}`,
+        `Notif interna magic_link falló (${(updated as any).folio}): ${safeMsg}`,
       );
     }
 
@@ -1957,7 +2018,16 @@ export class CotizacionesService {
       ? parts.join(' / ')
       : 'Sin solicitante';
 
+    const notifTenantId = c.tenantId;
+    if (!notifTenantId) {
+      this.logger.warn(
+        `Notif interna omitida (${c.folio}): cotización sin tenantId`,
+      );
+      return;
+    }
+
     await this.emailService.sendInternalDecisionNotification({
+      tenantId: notifTenantId,
       to: recipients,
       folio: String(c.folio || ''),
       decision,

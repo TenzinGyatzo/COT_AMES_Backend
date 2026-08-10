@@ -22,6 +22,10 @@ describe('TenantContextGuard', () => {
 
   it('operativo: usa tenantId del JWT e ignora header cliente', async () => {
     const tenantId = new Types.ObjectId();
+    tenantsService.findById.mockResolvedValue({
+      _id: tenantId,
+      activo: true,
+    });
     const req: any = {
       user: { rol: Roles.OPERATIVO, tenantId: tenantId.toString() },
       headers: { 'x-tenant-id': new Types.ObjectId().toString() },
@@ -29,12 +33,71 @@ describe('TenantContextGuard', () => {
 
     await expect(guard.canActivate(makeCtx(req))).resolves.toBe(true);
     expect(String(req.effectiveTenantId)).toBe(String(tenantId));
-    expect(tenantsService.findById).not.toHaveBeenCalled();
+    expect(tenantsService.findById).toHaveBeenCalledWith(tenantId.toString());
   });
 
   it('operativo sin tenantId: 403', async () => {
     const req: any = {
       user: { rol: Roles.OPERATIVO },
+      headers: {},
+    };
+
+    await expect(guard.canActivate(makeCtx(req))).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('operativo con tenant inactivo: 403 (Story 4.3 / AD-14)', async () => {
+    const tenantId = new Types.ObjectId();
+    tenantsService.findById.mockResolvedValue({
+      _id: tenantId,
+      activo: false,
+    });
+    const req: any = {
+      user: { rol: Roles.OPERATIVO, tenantId: tenantId.toString() },
+      headers: {},
+    };
+
+    await expect(guard.canActivate(makeCtx(req))).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('admin_tenant: usa tenantId del JWT e ignora header cliente', async () => {
+    const tenantId = new Types.ObjectId();
+    tenantsService.findById.mockResolvedValue({
+      _id: tenantId,
+      activo: true,
+    });
+    const req: any = {
+      user: { rol: Roles.ADMIN_TENANT, tenantId: tenantId.toString() },
+      headers: { 'x-tenant-id': new Types.ObjectId().toString() },
+    };
+
+    await expect(guard.canActivate(makeCtx(req))).resolves.toBe(true);
+    expect(String(req.effectiveTenantId)).toBe(String(tenantId));
+    expect(tenantsService.findById).toHaveBeenCalledWith(tenantId.toString());
+  });
+
+  it('admin_tenant sin tenantId: 403', async () => {
+    const req: any = {
+      user: { rol: Roles.ADMIN_TENANT },
+      headers: {},
+    };
+
+    await expect(guard.canActivate(makeCtx(req))).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('admin_tenant con tenant inactivo: 403 (Story 4.3 / AD-14)', async () => {
+    const tenantId = new Types.ObjectId();
+    tenantsService.findById.mockResolvedValue({
+      _id: tenantId,
+      activo: false,
+    });
+    const req: any = {
+      user: { rol: Roles.ADMIN_TENANT, tenantId: tenantId.toString() },
       headers: {},
     };
 
@@ -117,7 +180,7 @@ describe('TenantContextGuard', () => {
     );
   });
 
-  it('admin_sistema con tenant inactivo: 403', async () => {
+  it('admin_sistema con tenant inactivo: allow (Story 4.3 / AD-14)', async () => {
     const tenantId = new Types.ObjectId();
     tenantsService.findById.mockResolvedValue({
       _id: tenantId,
@@ -128,8 +191,7 @@ describe('TenantContextGuard', () => {
       headers: { 'x-tenant-id': tenantId.toString() },
     };
 
-    await expect(guard.canActivate(makeCtx(req))).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await expect(guard.canActivate(makeCtx(req))).resolves.toBe(true);
+    expect(String(req.effectiveTenantId)).toBe(String(tenantId));
   });
 });

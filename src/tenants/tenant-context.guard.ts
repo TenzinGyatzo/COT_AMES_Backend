@@ -12,18 +12,18 @@ import { TenantsService } from './tenants.service';
 
 export const X_TENANT_ID_HEADER = 'x-tenant-id';
 
-/** Swagger: operativo no envía; admin_sistema sí (400 si falta). */
+/** Swagger: operativo/admin_tenant no envían; admin_sistema sí (400 si falta). */
 export const X_TENANT_ID_API_HEADER = {
   name: 'X-Tenant-Id',
   required: false,
   description:
-    'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+    'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inexistente). Puede apuntar a tenant inactivo (soporte AD-14). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT (debe estar activo).',
 } as const;
 
 /**
- * Resuelve tenant efectivo (AD-2) y lo deja en `req.effectiveTenantId`.
- * - operativo: JWT/DB `user.tenantId` (ignora header del cliente)
- * - admin_sistema: `X-Tenant-Id` obligatorio y validado
+ * Resuelve tenant efectivo (AD-2 / AD-11 / AD-14) y lo deja en `req.effectiveTenantId`.
+ * - operativo | admin_tenant: JWT/DB `user.tenantId` (ignora header); exige tenant activo
+ * - admin_sistema: `X-Tenant-Id` obligatorio; permite inactivo para soporte/reactivación
  */
 @Injectable()
 export class TenantContextGuard implements CanActivate {
@@ -36,11 +36,23 @@ export class TenantContextGuard implements CanActivate {
       throw new ForbiddenException('Usuario no autenticado');
     }
 
-    if (user.rol === Roles.OPERATIVO) {
+    if (
+      user.rol === Roles.OPERATIVO ||
+      user.rol === Roles.ADMIN_TENANT
+    ) {
       if (!user.tenantId) {
-        throw new ForbiddenException('Usuario operativo sin tenant asignado');
+        throw new ForbiddenException(
+          user.rol === Roles.ADMIN_TENANT
+            ? 'Usuario admin_tenant sin tenant asignado'
+            : 'Usuario operativo sin tenant asignado',
+        );
       }
-      req.effectiveTenantId = this.toObjectId(user.tenantId);
+      const tenantId = this.toObjectId(user.tenantId);
+      const tenant = await this.tenantsService.findById(String(tenantId));
+      if (!tenant || tenant.activo === false) {
+        throw new ForbiddenException('Tenant no encontrado o inactivo');
+      }
+      req.effectiveTenantId = tenant._id as Types.ObjectId;
       return true;
     }
 
@@ -57,9 +69,10 @@ export class TenantContextGuard implements CanActivate {
         throw new ForbiddenException('X-Tenant-Id inválido');
       }
       const tenant = await this.tenantsService.findById(header);
-      if (!tenant || !tenant.activo) {
-        throw new ForbiddenException('Tenant no encontrado o inactivo');
+      if (!tenant) {
+        throw new ForbiddenException('Tenant no encontrado');
       }
+      // AD-14: admin_sistema puede operar tenants inactivos (soporte / reactivar).
       req.effectiveTenantId = tenant._id as Types.ObjectId;
       return true;
     }

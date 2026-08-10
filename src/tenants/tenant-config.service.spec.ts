@@ -1,10 +1,15 @@
 import { Types } from 'mongoose';
-import { BadRequestException } from '@nestjs/common';
+import {
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { TenantConfigService } from './tenant-config.service';
 
-describe('TenantConfigService (Stories 2.1–2.5)', () => {
+describe('TenantConfigService (Stories 2.1–2.5 + 3.2)', () => {
   const tenantId = new Types.ObjectId();
   const otherTenantId = new Types.ObjectId();
+  const HEX_KEY =
+    '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
   const store = new Map<string, any>();
 
@@ -31,13 +36,21 @@ describe('TenantConfigService (Stories 2.1–2.5)', () => {
     };
   }
 
+  function chainable(exec: () => Promise<any>) {
+    const q: { select: (fields: string) => typeof q; exec: typeof exec } = {
+      select: () => q,
+      exec,
+    };
+    return q;
+  }
+
   const tenantConfigModel = {
-    findOne: jest.fn((q: { tenantId: Types.ObjectId }) => ({
-      exec: async () => store.get(String(q.tenantId)) || null,
-    })),
+    findOne: jest.fn((q: { tenantId: Types.ObjectId }) =>
+      chainable(async () => store.get(String(q.tenantId)) || null),
+    ),
     findOneAndUpdate: jest.fn(
-      (filter: { tenantId: Types.ObjectId }, update: any, _opts: unknown) => ({
-        exec: async () => {
+      (filter: { tenantId: Types.ObjectId }, update: any, _opts: unknown) =>
+        chainable(async () => {
           const key = String(filter.tenantId);
           let doc = store.get(key);
           if (!doc) {
@@ -83,8 +96,7 @@ describe('TenantConfigService (Stories 2.1–2.5)', () => {
             }
           }
           return doc;
-        },
-      }),
+        }),
     ),
   };
 
@@ -97,10 +109,15 @@ describe('TenantConfigService (Stories 2.1–2.5)', () => {
   beforeEach(() => {
     store.clear();
     jest.clearAllMocks();
+    process.env.TENANT_SECRETS_KEY = HEX_KEY;
     service = new TenantConfigService(
       tenantConfigModel as any,
       tenantContext as any,
     );
+  });
+
+  afterEach(() => {
+    delete process.env.TENANT_SECRETS_KEY;
   });
 
   it('findOrCreateForTenant crea shell vía upsert si no existe', async () => {
@@ -158,13 +175,13 @@ describe('TenantConfigService (Stories 2.1–2.5)', () => {
   it('findOrCreate recupera doc tras E11000 de carrera', async () => {
     const existing = makeDoc(tenantId);
     store.set(String(tenantId), existing);
-    tenantConfigModel.findOneAndUpdate.mockReturnValueOnce({
-      exec: async () => {
+    tenantConfigModel.findOneAndUpdate.mockReturnValueOnce(
+      chainable(async () => {
         const err: any = new Error('E11000 duplicate');
         err.code = 11000;
         throw err;
-      },
-    });
+      }),
+    );
 
     const doc = await service.findOrCreateForTenant(tenantId);
     expect(doc).toBe(existing);
@@ -416,6 +433,125 @@ describe('TenantConfigService (Stories 2.1–2.5)', () => {
     const res = service.toResponse(doc);
     expect(res.emailRemitente).toBe('from@ames.example');
     expect(res.correosNotificacion).toEqual([]);
+    expect(res.emailCredentialsConfigured).toBe(false);
+    expect((res as any).emailSecretEnc).toBeUndefined();
+  });
+
+  it('updateEmailConfig cifra emailPass y no filtra secret en toResponse', async () => {
+    await service.findOrCreateForTenant(tenantId);
+    const updated = await service.updateEmailConfig({
+      emailUser: 'smtp@tenant.example',
+      emailPass: 'app-password-16ch',
+      emailRemitente: 'from@tenant.example',
+    });
+    expect(updated.emailUser).toBe('smtp@tenant.example');
+    expect(updated.emailSecretEnc).toBeTruthy();
+    expect(updated.emailSecretEnc).not.toContain('app-password-16ch');
+    expect(updated.emailRemitente).toBe('from@tenant.example');
+    const res = service.toResponse(updated as any);
+    expect(res.emailUser).toBe('smtp@tenant.example');
+    expect(res.emailCredentialsConfigured).toBe(true);
+    expect((res as any).emailSecretEnc).toBeUndefined();
+    expect((res as any).emailPass).toBeUndefined();
+  });
+
+  it('updateEmailConfig rota solo emailPass con emailUser existente', async () => {
+    store.set(String(tenantId), {
+      ...makeDoc(tenantId),
+      emailUser: 'smtp@tenant.example',
+      emailSecretEnc: 'old-blob',
+    });
+    const updated = await service.updateEmailConfig({
+      emailPass: 'new-app-password',
+    });
+    expect(updated.emailUser).toBe('smtp@tenant.example');
+    expect(updated.emailSecretEnc).toBeTruthy();
+    expect(updated.emailSecretEnc).not.toBe('old-blob');
+    expect(updated.emailSecretEnc).not.toContain('new-app-password');
+  });
+
+  it('updateEmailConfig exige emailUser en primera config con pass', async () => {
+    await service.findOrCreateForTenant(tenantId);
+    await expect(
+      service.updateEmailConfig({ emailPass: 'solo-pass' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('updateEmailConfig exige emailPass al cambiar emailUser con secret', async () => {
+    store.set(String(tenantId), {
+      ...makeDoc(tenantId),
+      emailUser: 'smtp@tenant.example',
+      emailSecretEnc: 'old-blob',
+    });
+    await expect(
+      service.updateEmailConfig({ emailUser: 'otra@tenant.example' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('updateEmailConfig permite mismo emailUser sin pass', async () => {
+    store.set(String(tenantId), {
+      ...makeDoc(tenantId),
+      emailUser: 'smtp@tenant.example',
+      emailSecretEnc: 'old-blob',
+    });
+    const updated = await service.updateEmailConfig({
+      emailUser: 'smtp@tenant.example',
+      emailRemitente: 'from@tenant.example',
+    });
+    expect(updated.emailUser).toBe('smtp@tenant.example');
+    expect(updated.emailSecretEnc).toBe('old-blob');
+    expect(updated.emailRemitente).toBe('from@tenant.example');
+  });
+
+  it('updateEmailConfig rechaza emailPass solo espacios', async () => {
+    await service.findOrCreateForTenant(tenantId);
+    await expect(
+      service.updateEmailConfig({
+        emailUser: 'smtp@tenant.example',
+        emailPass: '   ',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('updateEmailConfig rechaza limpiar emailUser junto con emailPass', async () => {
+    store.set(String(tenantId), {
+      ...makeDoc(tenantId),
+      emailUser: 'smtp@tenant.example',
+      emailSecretEnc: 'old-blob',
+    });
+    await expect(
+      service.updateEmailConfig({ emailUser: '', emailPass: 'new-pass' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('getOutboundSmtpAuth retorna user+secretEnc o null', async () => {
+    expect(await service.getOutboundSmtpAuth(tenantId)).toBeNull();
+    store.set(String(tenantId), {
+      ...makeDoc(tenantId),
+      emailUser: 'smtp@tenant.example',
+      emailSecretEnc: 'blob-enc',
+    });
+    await expect(service.getOutboundSmtpAuth(tenantId)).resolves.toEqual({
+      emailUser: 'smtp@tenant.example',
+      emailSecretEnc: 'blob-enc',
+    });
+  });
+
+  it('updateEmailConfig mapea TenantSecretsKeyError a 500', async () => {
+    const prev = process.env.TENANT_SECRETS_KEY;
+    delete process.env.TENANT_SECRETS_KEY;
+    await service.findOrCreateForTenant(tenantId);
+    try {
+      await expect(
+        service.updateEmailConfig({
+          emailUser: 'smtp@tenant.example',
+          emailPass: 'app-password-16ch',
+        }),
+      ).rejects.toBeInstanceOf(InternalServerErrorException);
+    } finally {
+      if (prev !== undefined) process.env.TENANT_SECRETS_KEY = prev;
+      else delete process.env.TENANT_SECRETS_KEY;
+    }
   });
 
   it('updateVigenciaBancarios guarda días y bancarios scoped', async () => {

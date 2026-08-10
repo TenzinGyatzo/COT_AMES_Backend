@@ -1,4 +1,4 @@
-import { Global, Module } from '@nestjs/common';
+import { Global, Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Tenant, TenantSchema } from './schemas/tenant.schema';
 import {
@@ -12,6 +12,8 @@ import { TenantContextInterceptor } from './tenant-context.interceptor';
 import { TenantsController } from './tenants.controller';
 import { TenantConfigService } from './tenant-config.service';
 import { TenantConfigController } from './tenant-config.controller';
+import { UsersModule } from '../users/users.module';
+import { PlantillasModule } from '../plantillas/plantillas.module';
 
 @Global()
 @Module({
@@ -20,6 +22,8 @@ import { TenantConfigController } from './tenant-config.controller';
       { name: Tenant.name, schema: TenantSchema },
       { name: TenantConfig.name, schema: TenantConfigSchema },
     ]),
+    forwardRef(() => UsersModule),
+    forwardRef(() => PlantillasModule),
   ],
   controllers: [TenantsController, TenantConfigController],
   providers: [

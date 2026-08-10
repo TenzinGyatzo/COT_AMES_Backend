@@ -67,4 +67,25 @@ export class UpdateTenantEmailDto {
     { each: true, message: 'Cada correo de notificación debe ser válido' },
   )
   correosNotificacion?: string[] | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Cuenta Gmail SMTP (EMAIL_USER). Vacío limpia solo si no hay secret configurado.',
+  })
+  @IsOptional()
+  @Transform(nullOrTrimEmail)
+  @ValidateIf((_, v) => v !== undefined && v !== null && v !== '')
+  @IsEmail({}, { message: 'emailUser debe ser un correo válido' })
+  @IsString()
+  @MaxLength(120)
+  emailUser?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Contraseña de aplicación Gmail (EMAIL_PASS). Write-only; nunca se re-muestra. Primera config: requiere emailUser. Rotación: puede ir sola. Solo espacios → 400.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  emailPass?: string;
 }

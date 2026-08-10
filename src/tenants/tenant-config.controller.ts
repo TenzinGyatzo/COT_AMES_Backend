@@ -23,10 +23,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { AdminGuard } from '../auth/guards/admin.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles as RolesDecorator } from '../auth/decorators/roles.decorator';
-import { AMES_ROLES } from '../auth/enums/roles.enum';
+import { AMES_ROLES, Roles } from '../auth/enums/roles.enum';
 import {
   TenantContextGuard,
   X_TENANT_ID_API_HEADER,
@@ -39,6 +38,9 @@ import { UpdateTenantEmailDto } from './dto/update-tenant-email.dto';
 import { UpdateTenantVigenciaBancariosDto } from './dto/update-tenant-vigencia-bancarios.dto';
 import { MulterBadRequestFilter } from './multer-bad-request.filter';
 
+/** Escritura config: admin_tenant | admin_sistema (FR42 / AD-16 / Story 2.4). */
+const CONFIG_WRITE_ROLES = [Roles.ADMIN_TENANT, Roles.ADMIN_SISTEMA] as const;
+
 @ApiTags('tenant-config')
 @Controller('tenant-config')
 @UseGuards(JwtAuthGuard, RolesGuard, TenantContextGuard)
@@ -49,7 +51,7 @@ import { MulterBadRequestFilter } from './multer-bad-request.filter';
   ...X_TENANT_ID_API_HEADER,
   required: false,
   description:
-    'Obligatorio para admin_sistema. Operativo: no enviar (tenant del JWT). Define qué configuración se lee/escribe (AD-2).',
+    'Obligatorio para admin_sistema. Operativo y admin_tenant: no enviar (tenant del JWT). Define qué configuración se lee/escribe (AD-2).',
 })
 export class TenantConfigController {
   constructor(private readonly tenantConfigService: TenantConfigService) {}
@@ -58,12 +60,12 @@ export class TenantConfigController {
   @ApiOperation({
     summary: 'Obtener configuración del tenant activo',
     description:
-      'Roles AMES (operativo + admin_sistema). Si no existe documento, crea shell. Incluye branding, email, vigencia, bancarios y logo banco (2.2–2.5). Escritura sigue restringida a admin_sistema.',
+      'Roles AMES (operativo | admin_tenant | admin_sistema). Lectura para PDF/núcleo. Escritura restringida a admin_tenant | admin_sistema (Story 2.4 / FR42).',
   })
   @ApiResponse({ status: 200, type: TenantConfigResponseDto })
   @ApiResponse({
     status: 400,
-    description: 'X-Tenant-Id ausente o ambiguo (admin)',
+    description: 'X-Tenant-Id ausente o ambiguo (admin_sistema)',
   })
   @ApiResponse({ status: 401, description: 'JWT ausente o inválido' })
   @ApiResponse({
@@ -77,43 +79,50 @@ export class TenantConfigController {
   }
 
   @Patch('branding')
-  @UseGuards(AdminGuard)
+  @RolesDecorator(...CONFIG_WRITE_ROLES)
   @ApiOperation({
     summary: 'Actualizar branding y datos legales del tenant activo',
     description:
-      'Partial update. String vacío limpia el campo. No incluye logo (usar POST/DELETE logo). Solo admin_sistema.',
+      'Partial update. String vacío limpia el campo. No incluye logo (usar POST/DELETE logo). admin_tenant | admin_sistema (FR42).',
   })
   @ApiBody({ type: UpdateTenantBrandingDto })
   @ApiResponse({ status: 200, type: TenantConfigResponseDto })
   @ApiResponse({ status: 400, description: 'Validación o X-Tenant-Id' })
-  @ApiResponse({ status: 403, description: 'No admin / tenant inválido' })
+  @ApiResponse({
+    status: 403,
+    description: 'operativo u otro rol sin permiso / tenant inválido',
+  })
   async patchBranding(@Body() dto: UpdateTenantBrandingDto) {
     const doc = await this.tenantConfigService.updateBranding(dto);
     return this.tenantConfigService.toResponse(doc);
   }
 
   @Patch('email')
-  @UseGuards(AdminGuard)
+  @RolesDecorator(...CONFIG_WRITE_ROLES)
   @ApiOperation({
-    summary: 'Actualizar remitente y correos de notificación del tenant',
+    summary:
+      'Actualizar remitente, notificaciones y credenciales SMTP del tenant',
     description:
-      'Partial update (Story 2.3). emailRemitente vacío limpia. correosNotificacion: [] es válido. Solo admin_sistema.',
+      'Partial update. emailRemitente vacío limpia. correosNotificacion: [] es válido. emailUser + emailPass (app password) → cifra a emailSecretEnc (FR55). Response nunca incluye el secret. admin_tenant | admin_sistema (FR42).',
   })
   @ApiBody({ type: UpdateTenantEmailDto })
   @ApiResponse({ status: 200, type: TenantConfigResponseDto })
   @ApiResponse({ status: 400, description: 'Validación o X-Tenant-Id' })
-  @ApiResponse({ status: 403, description: 'No admin / tenant inválido' })
+  @ApiResponse({
+    status: 403,
+    description: 'operativo u otro rol sin permiso / tenant inválido',
+  })
   async patchEmail(@Body() dto: UpdateTenantEmailDto) {
     const doc = await this.tenantConfigService.updateEmailConfig(dto);
     return this.tenantConfigService.toResponse(doc);
   }
 
   @Patch('vigencia-bancarios')
-  @UseGuards(AdminGuard)
+  @RolesDecorator(...CONFIG_WRITE_ROLES)
   @ApiOperation({
     summary: 'Actualizar vigencia default y datos bancarios del tenant activo',
     description:
-      'Partial update (Story 2.4). Solo admin_sistema. String vacío limpia subcampo bancario.',
+      'Partial update. admin_tenant | admin_sistema (FR42). String vacío limpia subcampo bancario.',
   })
   @ApiBody({ type: UpdateTenantVigenciaBancariosDto })
   @ApiResponse({ status: 200, type: TenantConfigResponseDto })
@@ -121,15 +130,21 @@ export class TenantConfigController {
     status: 400,
     description: 'Validación (días fuera de rango, etc.)',
   })
-  @ApiResponse({ status: 403, description: 'No admin / tenant inválido' })
+  @ApiResponse({
+    status: 403,
+    description: 'operativo u otro rol sin permiso / tenant inválido',
+  })
   async patchVigenciaBancarios(@Body() dto: UpdateTenantVigenciaBancariosDto) {
     const doc = await this.tenantConfigService.updateVigenciaBancarios(dto);
     return this.tenantConfigService.toResponse(doc);
   }
 
   @Post('branding/logo')
-  @UseGuards(AdminGuard)
-  @ApiOperation({ summary: 'Subir o reemplazar logo del tenant activo' })
+  @RolesDecorator(...CONFIG_WRITE_ROLES)
+  @ApiOperation({
+    summary: 'Subir o reemplazar logo del tenant activo',
+    description: 'admin_tenant | admin_sistema (FR42).',
+  })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -142,7 +157,10 @@ export class TenantConfigController {
   })
   @ApiResponse({ status: 200, type: TenantConfigResponseDto })
   @ApiResponse({ status: 400, description: 'Archivo inválido / tamaño / mime' })
-  @ApiResponse({ status: 403, description: 'No admin / tenant inválido' })
+  @ApiResponse({
+    status: 403,
+    description: 'operativo u otro rol sin permiso / tenant inválido',
+  })
   @UseFilters(MulterBadRequestFilter)
   @UseInterceptors(
     FileInterceptor('file', {
@@ -159,21 +177,27 @@ export class TenantConfigController {
   }
 
   @Delete('branding/logo')
-  @UseGuards(AdminGuard)
-  @ApiOperation({ summary: 'Eliminar logo del tenant activo' })
+  @RolesDecorator(...CONFIG_WRITE_ROLES)
+  @ApiOperation({
+    summary: 'Eliminar logo del tenant activo',
+    description: 'admin_tenant | admin_sistema (FR42).',
+  })
   @ApiResponse({ status: 200, type: TenantConfigResponseDto })
-  @ApiResponse({ status: 403, description: 'No admin / tenant inválido' })
+  @ApiResponse({
+    status: 403,
+    description: 'operativo u otro rol sin permiso / tenant inválido',
+  })
   async deleteLogo() {
     const doc = await this.tenantConfigService.clearLogo();
     return this.tenantConfigService.toResponse(doc);
   }
 
   @Post('bancarios/logo')
-  @UseGuards(AdminGuard)
+  @RolesDecorator(...CONFIG_WRITE_ROLES)
   @ApiOperation({
-    summary: 'Subir o reemplazar logo del banco (Story 2.5)',
+    summary: 'Subir o reemplazar logo del banco',
     description:
-      'No pisa branding.logoUrl. Solo admin_sistema. PNG/JPEG/WebP ≤1MB.',
+      'No pisa branding.logoUrl. admin_tenant | admin_sistema (FR42). PNG/JPEG/WebP ≤1MB.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -187,7 +211,10 @@ export class TenantConfigController {
   })
   @ApiResponse({ status: 200, type: TenantConfigResponseDto })
   @ApiResponse({ status: 400, description: 'Archivo inválido / tamaño / mime' })
-  @ApiResponse({ status: 403, description: 'No admin / tenant inválido' })
+  @ApiResponse({
+    status: 403,
+    description: 'operativo u otro rol sin permiso / tenant inválido',
+  })
   @UseFilters(MulterBadRequestFilter)
   @UseInterceptors(
     FileInterceptor('file', {
@@ -204,10 +231,16 @@ export class TenantConfigController {
   }
 
   @Delete('bancarios/logo')
-  @UseGuards(AdminGuard)
-  @ApiOperation({ summary: 'Eliminar logo del banco del tenant activo' })
+  @RolesDecorator(...CONFIG_WRITE_ROLES)
+  @ApiOperation({
+    summary: 'Eliminar logo del banco del tenant activo',
+    description: 'admin_tenant | admin_sistema (FR42).',
+  })
   @ApiResponse({ status: 200, type: TenantConfigResponseDto })
-  @ApiResponse({ status: 403, description: 'No admin / tenant inválido' })
+  @ApiResponse({
+    status: 403,
+    description: 'operativo u otro rol sin permiso / tenant inválido',
+  })
   async deleteBankLogo() {
     const doc = await this.tenantConfigService.clearBankLogo();
     return this.tenantConfigService.toResponse(doc);

@@ -43,7 +43,7 @@ import { TenantContextInterceptor } from '../tenants/tenant-context.interceptor'
   name: 'X-Tenant-Id',
   required: false,
   description:
-    'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+    'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
 })
 export class ContactosController {
   constructor(private readonly contactosService: ContactosService) {}

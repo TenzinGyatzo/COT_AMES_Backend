@@ -2,11 +2,14 @@ import {
   BadRequestException,
   ForbiddenException,
   HttpException,
+  InternalServerErrorException,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { CotizacionesService } from './cotizaciones.service';
+import { TenantSecretsKeyError } from '../tenants/tenant-secrets.crypto';
+import { TenantEmailNotConfiguredError } from '../emails/tenant-email-not-configured.error';
 
 describe('CotizacionesService resolveVencimiento (Story 2.4)', () => {
   const tenantConfigService = {
@@ -27,6 +30,7 @@ describe('CotizacionesService resolveVencimiento (Story 2.4)', () => {
       {} as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
   });
 
@@ -95,7 +99,8 @@ describe('CotizacionesService.resolveMagicExpiresAt (Story 6.15)', () => {
     { getTenantId: jest.fn() } as any,
     {} as any,
     {} as any,
-  );
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
+    );
 
   it('sinVigencia → fechaCreacion + 365d', () => {
     const creacion = new Date('2026-01-01T00:00:00.000Z');
@@ -154,6 +159,7 @@ describe('CotizacionesService.create — cliente inactivo (Story 3.2)', () => {
       {} as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
   });
 
@@ -196,6 +202,7 @@ describe('CotizacionesService.buildItems — servicio inactivo (Story 4.2)', () 
       {} as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
   });
 
@@ -237,6 +244,7 @@ describe('CotizacionesService.buildItems — overrides snapshot (Story 6.4)', ()
       {} as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
     serviciosService.findOne.mockResolvedValue({
       _id: new Types.ObjectId(),
@@ -369,6 +377,7 @@ describe('CotizacionesService.buildPlantillasSnapshot (Story 6.5)', () => {
       {} as any,
       plantillasService as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
   });
 
@@ -548,6 +557,7 @@ describe('CotizacionesService.createAdminCotizacion — plantillas (Story 6.5)',
       countersService as any,
       plantillasService as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
     jest.spyOn(service, 'findOne').mockResolvedValue(savedDoc as any);
   });
@@ -651,6 +661,7 @@ describe('CotizacionesService.createAdminCotizacion — destinatarios (Story 6.6
       countersService as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
     jest.spyOn(service, 'findOne').mockResolvedValue(savedDoc as any);
   });
@@ -709,6 +720,7 @@ describe('CotizacionesService.generateFolio (Story 6.1)', () => {
       countersService as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
   });
 
@@ -781,6 +793,7 @@ describe('CotizacionesService.createAdminCotizacion flexible (Story 6.2)', () =>
       countersService as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
     jest.spyOn(service, 'findOne').mockResolvedValue(savedDoc as any);
   });
@@ -896,6 +909,7 @@ describe('CotizacionesService.createAdminCotizacion flexible (Story 6.2)', () =>
       countersService as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
     jest.spyOn(service, 'findOne').mockResolvedValue(savedDoc as any);
 
@@ -931,6 +945,7 @@ describe('CotizacionesService.createAdminCotizacion flexible (Story 6.2)', () =>
       countersService as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
     jest.spyOn(service, 'findOne').mockResolvedValue(savedDoc as any);
 
@@ -962,6 +977,7 @@ describe('CotizacionesService.createAdminCotizacion flexible (Story 6.2)', () =>
       countersService as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
     jest.spyOn(service, 'findOne').mockResolvedValue(savedDoc as any);
 
@@ -998,6 +1014,7 @@ describe('CotizacionesService.findAll search escape (Story 6.3)', () => {
       {} as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
   });
 
@@ -1081,6 +1098,7 @@ describe('CotizacionesService.findAll clienteId (Story 3.7)', () => {
       {} as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
   });
 
@@ -1154,6 +1172,7 @@ describe('CotizacionesService.findAll creadoPorNombre', () => {
       {} as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
   });
 
@@ -1299,17 +1318,26 @@ describe('CotizacionesService.create + enviarCorreoConPdf (Story 6.8)', () => {
 
   const serviciosService = { findOne: jest.fn() };
   const tenantContext = { getTenantId: jest.fn().mockReturnValue(tenantId) };
+  const tenantCfg = {
+    vigenciaDefaultDias: 30,
+    emailRemitente: 'from@tenant.test',
+    branding: { razonSocial: 'AMES Test' },
+  };
   const tenantConfigService = {
-    getForRequest: jest.fn().mockResolvedValue({
-      vigenciaDefaultDias: 30,
-      emailRemitente: 'from@tenant.test',
-      branding: { razonSocial: 'AMES Test' },
+    getForRequest: jest.fn().mockResolvedValue(tenantCfg),
+    findByTenantId: jest.fn().mockResolvedValue(tenantCfg),
+    getOutboundSmtpAuth: jest.fn().mockResolvedValue({
+      emailUser: 'smtp@tenant.test',
+      emailSecretEnc: 'enc-blob',
     }),
   };
   const countersService = {
     nextFolio: jest.fn().mockResolvedValue(`COT-${year}-0001`),
   };
   const emailService = { sendAdminQuotationEmail: jest.fn() };
+  const tenantsService = {
+    findById: jest.fn().mockResolvedValue({ activo: true }),
+  };
 
   let service: CotizacionesService;
   let ModelCtor: any;
@@ -1318,6 +1346,13 @@ describe('CotizacionesService.create + enviarCorreoConPdf (Story 6.8)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (tenantContext.getTenantId as jest.Mock).mockReturnValue(tenantId);
+    tenantConfigService.findByTenantId.mockResolvedValue(tenantCfg);
+    tenantConfigService.getForRequest.mockResolvedValue(tenantCfg);
+    tenantConfigService.getOutboundSmtpAuth.mockResolvedValue({
+      emailUser: 'smtp@tenant.test',
+      emailSecretEnc: 'enc-blob',
+    });
+    tenantsService.findById.mockResolvedValue({ activo: true });
     serviciosService.findOne.mockResolvedValue({
       _id: servicioId,
       tenantId,
@@ -1328,6 +1363,7 @@ describe('CotizacionesService.create + enviarCorreoConPdf (Story 6.8)', () => {
     lastPersisted = null;
     const savedDoc = {
       _id: cotizacionId,
+      tenantId,
       folio: `COT-${year}-0001`,
       emailsPara: ['a@x.com'],
       emailsCc: ['b@x.com'],
@@ -1359,6 +1395,7 @@ describe('CotizacionesService.create + enviarCorreoConPdf (Story 6.8)', () => {
       countersService as any,
       {} as any,
       {} as any,
+      tenantsService as any,
     );
     jest.spyOn(service, 'findOne').mockResolvedValue(savedDoc as any);
   });
@@ -1384,12 +1421,35 @@ describe('CotizacionesService.create + enviarCorreoConPdf (Story 6.8)', () => {
     const res = await service.enviarCorreoConPdf(cotizacionId.toString(), pdf);
     expect(res.ok).toBe(true);
     expect(emailService.sendAdminQuotationEmail).toHaveBeenCalled();
+    expect(tenantConfigService.findByTenantId).toHaveBeenCalledWith(tenantId);
+    expect(tenantConfigService.getForRequest).not.toHaveBeenCalled();
     const args = emailService.sendAdminQuotationEmail.mock.calls[0];
-    expect(args[0]).toEqual(['a@x.com']);
-    expect(args[3]).toBe(pdf.buffer);
-    expect(typeof args[4]).toBe('string'); // magicToken
-    expect(args[4].length).toBe(64);
-    expect(args[5]).toBe('from@tenant.test');
+    expect(args[0]).toEqual(tenantId);
+    expect(args[1]).toEqual(['a@x.com']);
+    expect(args[4]).toBe(pdf.buffer);
+    expect(typeof args[5]).toBe('string'); // magicToken
+    expect(args[5].length).toBe(64);
+    expect(args[6]).toBe('from@tenant.test');
+  });
+
+  it('enviarCorreoConPdf sin tenantId no emite magicToken', async () => {
+    jest.spyOn(service, 'findOne').mockResolvedValue({
+      _id: cotizacionId,
+      folio: 'X',
+      emailsPara: ['a@x.com'],
+      emailsCc: [],
+      fechaVencimiento: new Date(),
+    } as any);
+    const issueSpy = jest.spyOn(service as any, 'issueMagicToken');
+    await expect(
+      service.enviarCorreoConPdf(cotizacionId.toString(), {
+        buffer: Buffer.from('%PDF'),
+        mimetype: 'application/pdf',
+        originalname: 'a.pdf',
+      } as Express.Multer.File),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(issueSpy).not.toHaveBeenCalled();
+    expect(emailService.sendAdminQuotationEmail).not.toHaveBeenCalled();
   });
 
   it('enviarCorreoConPdf sin Para → 400', async () => {
@@ -1439,6 +1499,75 @@ describe('CotizacionesService.create + enviarCorreoConPdf (Story 6.8)', () => {
       cotizacionId.toString(),
       { $unset: { magicToken: 1, magicTokenExpiresAt: 1 } },
     );
+  });
+
+  it('fallo TenantSecretsKeyError → HTTP 500 (no 400)', async () => {
+    emailService.sendAdminQuotationEmail.mockRejectedValue(
+      new TenantSecretsKeyError('clave inválida'),
+    );
+    await expect(
+      service.enviarCorreoConPdf(cotizacionId.toString(), {
+        buffer: Buffer.from('%PDF'),
+        mimetype: 'application/pdf',
+        originalname: 'a.pdf',
+      } as Express.Multer.File),
+    ).rejects.toBeInstanceOf(InternalServerErrorException);
+  });
+
+  it('sin credenciales → 400 con mensaje de Configuración sin magicToken (Story 3.4)', async () => {
+    tenantConfigService.getOutboundSmtpAuth.mockResolvedValue(null);
+    const issueSpy = jest.spyOn(service as any, 'issueMagicToken');
+    await expect(
+      service.enviarCorreoConPdf(cotizacionId.toString(), {
+        buffer: Buffer.from('%PDF'),
+        mimetype: 'application/pdf',
+        originalname: 'a.pdf',
+      } as Express.Multer.File),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        message: expect.stringMatching(/Configuración/i),
+      }),
+    });
+    expect(issueSpy).not.toHaveBeenCalled();
+    expect(emailService.sendAdminQuotationEmail).not.toHaveBeenCalled();
+    expect(ModelCtor.findByIdAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('TenantEmailNotConfiguredError tardío (p.ej. pass vacío) → 400 + unset magicToken', async () => {
+    emailService.sendAdminQuotationEmail.mockRejectedValue(
+      new TenantEmailNotConfiguredError(),
+    );
+    const issueSpy = jest.spyOn(service as any, 'issueMagicToken');
+    await expect(
+      service.enviarCorreoConPdf(cotizacionId.toString(), {
+        buffer: Buffer.from('%PDF'),
+        mimetype: 'application/pdf',
+        originalname: 'a.pdf',
+      } as Express.Multer.File),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        message: expect.stringMatching(/Configuración/i),
+      }),
+    });
+    expect(issueSpy).toHaveBeenCalled();
+    expect(ModelCtor.findByIdAndUpdate).toHaveBeenCalledWith(
+      cotizacionId.toString(),
+      { $unset: { magicToken: 1, magicTokenExpiresAt: 1 } },
+    );
+  });
+
+  it('tenant inactivo → 403 sin emitir magicToken (Story 3.4 / AD-14)', async () => {
+    tenantsService.findById.mockResolvedValue({ activo: false });
+    const issueSpy = jest.spyOn(service as any, 'issueMagicToken');
+    await expect(
+      service.enviarCorreoConPdf(cotizacionId.toString(), {
+        buffer: Buffer.from('%PDF'),
+        mimetype: 'application/pdf',
+        originalname: 'a.pdf',
+      } as Express.Multer.File),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(issueSpy).not.toHaveBeenCalled();
+    expect(emailService.sendAdminQuotationEmail).not.toHaveBeenCalled();
   });
 
   it('overrides Para/CC se persisten solo tras SMTP OK', async () => {
@@ -1544,6 +1673,7 @@ describe('CotizacionesService public magic link (Story 6.9)', () => {
       {} as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
   });
 
@@ -1724,6 +1854,7 @@ describe('CotizacionesService cambio manual + provenance (Story 6.10)', () => {
       {} as any,
       {} as any,
       usersService as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
     jest.spyOn(service, 'findOne').mockImplementation(async () => {
       const last = ModelCtor.findOneAndUpdate.mock.calls.at(-1);
@@ -1868,6 +1999,7 @@ describe('CotizacionesService markExpiredQuotations (Story 6.11)', () => {
       {} as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
   });
 
@@ -2093,6 +2225,7 @@ describe('CotizacionesService repetirCotizacion (Story 6.12)', () => {
       countersService as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
 
     jest.spyOn(service, 'findOne').mockImplementation(async (id: string) => {
@@ -2445,6 +2578,7 @@ describe('CotizacionesService previewRepetirCotizacion', () => {
       { nextFolio: jest.fn() } as any,
       {} as any,
       {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
 
     jest.spyOn(service, 'findOne').mockImplementation(async (id: string) => {
@@ -2641,6 +2775,7 @@ describe('CotizacionesService notificaciones internas magic link (Story 6.13)', 
       {} as any,
       {} as any,
       usersService as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
   });
 
@@ -2650,6 +2785,7 @@ describe('CotizacionesService notificaciones internas magic link (Story 6.13)', 
       1,
     );
     const args = emailService.sendInternalDecisionNotification.mock.calls[0][0];
+    expect(args.tenantId).toEqual(tenantId);
     expect(args.folio).toBe('COT-2030-0099');
     expect(args.decision).toBe('aceptada');
     expect(args.solicitanteLabel).toContain('Acme');
@@ -2673,6 +2809,7 @@ describe('CotizacionesService notificaciones internas magic link (Story 6.13)', 
     const dto = await service.rechazarCotizacionByMagicToken(token);
     expect(emailService.sendInternalDecisionNotification).toHaveBeenCalledWith(
       expect.objectContaining({
+        tenantId,
         decision: 'rechazada',
         folio: 'COT-2030-0099',
         fromOverride: 'from@tenant.test',
@@ -2806,6 +2943,7 @@ describe('CotizacionesService notificaciones internas magic link (Story 6.13)', 
       countersService as any,
       {} as any,
       usersService as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
     jest.spyOn(createService, 'findOne').mockResolvedValue({
       _id: new Types.ObjectId(),
@@ -2928,6 +3066,7 @@ describe('CotizacionesService notificaciones internas magic link (Story 6.13)', 
       countersService as any,
       {} as any,
       usersService as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
     jest.spyOn(repetirService, 'findOne').mockImplementation(async (id) => {
       if (String(id) === String(fuenteId)) {
@@ -2999,6 +3138,7 @@ describe('CotizacionesService notas internas', () => {
       {} as any,
       {} as any,
       usersService as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
     );
   });
 

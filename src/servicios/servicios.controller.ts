@@ -47,7 +47,7 @@ import { SERVICIO_ORDEN_VALUES } from './enums/servicio-orden.enum';
   name: 'X-Tenant-Id',
   required: false,
   description:
-    'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+    'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
 })
 export class ServiciosController {
   constructor(private readonly serviciosService: ServiciosService) {}

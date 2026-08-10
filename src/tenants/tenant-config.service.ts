@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs';
@@ -11,6 +15,10 @@ import { TenantContextService } from './tenant-context.service';
 import { UpdateTenantBrandingDto } from './dto/update-tenant-branding.dto';
 import { UpdateTenantEmailDto } from './dto/update-tenant-email.dto';
 import { UpdateTenantVigenciaBancariosDto } from './dto/update-tenant-vigencia-bancarios.dto';
+import {
+  encryptSecret,
+  TenantSecretsKeyError,
+} from './tenant-secrets.crypto';
 
 const LOGO_DIR = join(process.cwd(), 'uploads', 'tenant-logos');
 const BANK_LOGO_DIR = join(process.cwd(), 'uploads', 'tenant-bank-logos');
@@ -111,13 +119,22 @@ export class TenantConfigService {
     return ext;
   }
 
+  /** emailSecretEnc es select:false; incluirlo para flag configured y guards. */
+  private withEmailSecret<Q extends { select?: (fields: string) => Q }>(
+    query: Q,
+  ): Q {
+    return typeof query.select === 'function'
+      ? query.select('+emailSecretEnc')
+      : query;
+  }
+
   /** Upsert atómico: shell vacío si no existe (evita TOCTOU). */
   async findOrCreateForTenant(
     tenantId: Types.ObjectId,
   ): Promise<TenantConfigDocument> {
     try {
-      const doc = await this.tenantConfigModel
-        .findOneAndUpdate(
+      const doc = await this.withEmailSecret(
+        this.tenantConfigModel.findOneAndUpdate(
           { tenantId },
           {
             $setOnInsert: {
@@ -129,15 +146,17 @@ export class TenantConfigService {
             },
           },
           { upsert: true, new: true },
-        )
-        .exec();
+        ),
+      ).exec();
       if (!doc) {
         throw new Error('No se pudo crear/obtener TenantConfig');
       }
       return doc;
     } catch (err) {
       if (this.isDuplicateKeyError(err)) {
-        const again = await this.tenantConfigModel.findOne({ tenantId }).exec();
+        const again = await this.withEmailSecret(
+          this.tenantConfigModel.findOne({ tenantId }),
+        ).exec();
         if (again) return again;
       }
       throw err;
@@ -153,7 +172,29 @@ export class TenantConfigService {
   async findByTenantId(
     tenantId: Types.ObjectId,
   ): Promise<TenantConfigDocument | null> {
-    return this.tenantConfigModel.findOne({ tenantId }).exec();
+    return this.withEmailSecret(
+      this.tenantConfigModel.findOne({ tenantId }),
+    ).exec();
+  }
+
+  /** Compensación onboard (Story 4.1): borrar config del tenant parcial. */
+  async deleteByTenantId(tenantId: Types.ObjectId): Promise<void> {
+    await this.tenantConfigModel.deleteOne({ tenantId }).exec();
+  }
+
+  /**
+   * Credenciales SMTP outbound del tenant (Story 3.3 / AD-12).
+   * Solo callers internos (`emails`); nunca exponer vía REST / toResponse.
+   */
+  async getOutboundSmtpAuth(
+    tenantId: Types.ObjectId,
+  ): Promise<{ emailUser: string; emailSecretEnc: string } | null> {
+    const doc = await this.findByTenantId(tenantId);
+    const emailUser = doc?.emailUser?.trim();
+    const emailSecretEnc =
+      typeof doc?.emailSecretEnc === 'string' ? doc.emailSecretEnc : '';
+    if (!emailUser || !emailSecretEnc) return null;
+    return { emailUser, emailSecretEnc };
   }
 
   /** Defense in depth: trim/lower/dedupe/tope (también se aplica en DTO). */
@@ -225,9 +266,13 @@ export class TenantConfigService {
     if (Object.keys($set).length) update.$set = $set;
     if (Object.keys($unset).length) update.$unset = $unset;
 
-    const updated = await this.tenantConfigModel
-      .findOneAndUpdate({ tenantId }, update, { new: true })
-      .exec();
+    const updated = await this.withEmailSecret(
+      this.tenantConfigModel.findOneAndUpdate(
+        { tenantId },
+        update,
+        { new: true },
+      ),
+    ).exec();
     if (!updated) {
       throw new BadRequestException('No se pudo actualizar branding');
     }
@@ -238,7 +283,7 @@ export class TenantConfigService {
     dto: UpdateTenantEmailDto,
   ): Promise<TenantConfigDocument> {
     const tenantId = this.tenantContext.getTenantId();
-    await this.findOrCreateForTenant(tenantId);
+    const existing = await this.findOrCreateForTenant(tenantId);
 
     const $set: Record<string, unknown> = {};
     const $unset: Record<string, 1> = {};
@@ -257,17 +302,92 @@ export class TenantConfigService {
       );
     }
 
+    const passRaw =
+      typeof dto.emailPass === 'string' ? dto.emailPass : undefined;
+    const hasPass = passRaw !== undefined && passRaw.trim().length > 0;
+
+    if (dto.emailPass !== undefined && !hasPass) {
+      throw new BadRequestException(
+        'emailPass no puede estar vacío; use un valor nuevo para rotar',
+      );
+    }
+
+    if (
+      hasPass &&
+      dto.emailUser !== undefined &&
+      (dto.emailUser === '' || dto.emailUser === null)
+    ) {
+      throw new BadRequestException(
+        'No se puede limpiar emailUser al mismo tiempo que se configura emailPass',
+      );
+    }
+
+    if (dto.emailUser !== undefined && !hasPass) {
+      if (dto.emailUser === '' || dto.emailUser === null) {
+        if (existing.emailSecretEnc) {
+          throw new BadRequestException(
+            'No se puede quitar emailUser mientras haya contraseña de aplicación configurada',
+          );
+        }
+        $unset.emailUser = 1;
+      } else if (
+        existing.emailSecretEnc &&
+        dto.emailUser !== (existing.emailUser || undefined)
+      ) {
+        throw new BadRequestException(
+          'Para cambiar emailUser debe proporcionar también la nueva contraseña de aplicación',
+        );
+      } else {
+        $set.emailUser = dto.emailUser;
+      }
+    }
+
+    if (hasPass) {
+      const resolvedUser =
+        dto.emailUser !== undefined &&
+        dto.emailUser !== '' &&
+        dto.emailUser !== null
+          ? dto.emailUser
+          : existing.emailUser;
+      if (!resolvedUser) {
+        throw new BadRequestException(
+          'Debe proporcionar emailUser (cuenta Gmail) junto con la contraseña de aplicación',
+        );
+      }
+      if (
+        dto.emailUser !== undefined &&
+        dto.emailUser !== '' &&
+        dto.emailUser !== null
+      ) {
+        $set.emailUser = dto.emailUser;
+      } else if (!existing.emailUser) {
+        $set.emailUser = resolvedUser;
+      }
+      try {
+        $set.emailSecretEnc = encryptSecret(passRaw!);
+      } catch (err) {
+        if (err instanceof TenantSecretsKeyError) {
+          throw new InternalServerErrorException(err.message);
+        }
+        throw err;
+      }
+    }
+
     if (Object.keys($set).length === 0 && Object.keys($unset).length === 0) {
-      return this.findOrCreateForTenant(tenantId);
+      return existing;
     }
 
     const update: Record<string, unknown> = {};
     if (Object.keys($set).length) update.$set = $set;
     if (Object.keys($unset).length) update.$unset = $unset;
 
-    const updated = await this.tenantConfigModel
-      .findOneAndUpdate({ tenantId }, update, { new: true })
-      .exec();
+    const updated = await this.withEmailSecret(
+      this.tenantConfigModel.findOneAndUpdate(
+        { tenantId },
+        update,
+        { new: true },
+      ),
+    ).exec();
     if (!updated) {
       throw new BadRequestException(
         'No se pudo actualizar configuración de email',
@@ -319,9 +439,13 @@ export class TenantConfigService {
     if (Object.keys($set).length) update.$set = $set;
     if (Object.keys($unset).length) update.$unset = $unset;
 
-    const updated = await this.tenantConfigModel
-      .findOneAndUpdate({ tenantId }, update, { new: true })
-      .exec();
+    const updated = await this.withEmailSecret(
+      this.tenantConfigModel.findOneAndUpdate(
+        { tenantId },
+        update,
+        { new: true },
+      ),
+    ).exec();
     if (!updated) {
       throw new BadRequestException(
         'No se pudo actualizar vigencia/datos bancarios',
@@ -347,13 +471,13 @@ export class TenantConfigService {
 
     const logoUrl = this.logoPublicUrl(tenantId, ext);
     try {
-      const updated = await this.tenantConfigModel
-        .findOneAndUpdate(
+      const updated = await this.withEmailSecret(
+        this.tenantConfigModel.findOneAndUpdate(
           { tenantId },
           { $set: { 'branding.logoUrl': logoUrl } },
           { new: true },
-        )
-        .exec();
+        ),
+      ).exec();
       if (!updated) {
         try {
           unlinkSync(dest);
@@ -377,13 +501,13 @@ export class TenantConfigService {
   async clearLogo(): Promise<TenantConfigDocument> {
     const tenantId = this.tenantContext.getTenantId();
     await this.findOrCreateForTenant(tenantId);
-    const updated = await this.tenantConfigModel
-      .findOneAndUpdate(
+    const updated = await this.withEmailSecret(
+      this.tenantConfigModel.findOneAndUpdate(
         { tenantId },
         { $unset: { 'branding.logoUrl': 1 } },
         { new: true },
-      )
-      .exec();
+      ),
+    ).exec();
     if (!updated) {
       throw new BadRequestException('No se pudo eliminar el logo');
     }
@@ -410,13 +534,13 @@ export class TenantConfigService {
 
     const logoUrl = this.bankLogoPublicUrl(tenantId, ext);
     try {
-      const updated = await this.tenantConfigModel
-        .findOneAndUpdate(
+      const updated = await this.withEmailSecret(
+        this.tenantConfigModel.findOneAndUpdate(
           { tenantId },
           { $set: { 'bancarios.logoUrl': logoUrl } },
           { new: true },
-        )
-        .exec();
+        ),
+      ).exec();
       if (!updated) {
         try {
           unlinkSync(dest);
@@ -440,13 +564,13 @@ export class TenantConfigService {
   async clearBankLogo(): Promise<TenantConfigDocument> {
     const tenantId = this.tenantContext.getTenantId();
     await this.findOrCreateForTenant(tenantId);
-    const updated = await this.tenantConfigModel
-      .findOneAndUpdate(
+    const updated = await this.withEmailSecret(
+      this.tenantConfigModel.findOneAndUpdate(
         { tenantId },
         { $unset: { 'bancarios.logoUrl': 1 } },
         { new: true },
-      )
-      .exec();
+      ),
+    ).exec();
     if (!updated) {
       throw new BadRequestException('No se pudo eliminar el logo del banco');
     }
@@ -474,6 +598,9 @@ export class TenantConfigService {
       correosNotificacion: Array.isArray(obj.correosNotificacion)
         ? obj.correosNotificacion
         : [],
+      emailUser: obj.emailUser || undefined,
+      emailCredentialsConfigured: Boolean(obj.emailSecretEnc),
+      // Nunca emailSecretEnc / emailPass (AD-12 / NFR-8)
       vigenciaDefaultDias:
         typeof obj.vigenciaDefaultDias === 'number'
           ? obj.vigenciaDefaultDias

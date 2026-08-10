@@ -37,6 +37,24 @@ describe('RolesGuard', () => {
     expect(guard.canActivate(ctx({ rol: Roles.ADMIN_SISTEMA }))).toBe(true);
   });
 
+  it('permite admin_tenant cuando está en roles requeridos', () => {
+    (reflector.getAllAndOverride as jest.Mock).mockReturnValue([
+      Roles.OPERATIVO,
+      Roles.ADMIN_TENANT,
+      Roles.ADMIN_SISTEMA,
+    ]);
+    expect(guard.canActivate(ctx({ rol: Roles.ADMIN_TENANT }))).toBe(true);
+  });
+
+  it('deniega admin_tenant si no está en requiredRoles', () => {
+    (reflector.getAllAndOverride as jest.Mock).mockReturnValue([
+      Roles.ADMIN_SISTEMA,
+    ]);
+    expect(() =>
+      guard.canActivate(ctx({ rol: Roles.ADMIN_TENANT })),
+    ).toThrow(ForbiddenException);
+  });
+
   it('deniega rol desconocido', () => {
     (reflector.getAllAndOverride as jest.Mock).mockReturnValue([
       Roles.ADMIN_SISTEMA,

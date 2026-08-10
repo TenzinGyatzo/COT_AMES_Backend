@@ -131,23 +131,24 @@ describe('PlantillasService (Story 5.1 + 5.2)', () => {
     },
   }));
 
-  plantillaModel.findOne = jest.fn(
-    (q: { _id: string; tenantId: Types.ObjectId }) => ({
-      exec: async () => {
-        const doc = byId.get(String(q._id));
-        if (!doc || doc.tenantId.toString() !== q.tenantId.toString()) {
-          return null;
-        }
-        return {
-          ...doc,
-          save: jest.fn().mockImplementation(async function (this: any) {
-            indexDoc({ ...this });
-            return this;
-          }),
-        };
-      },
-    }),
-  );
+  plantillaModel.findOne = jest.fn((q: Record<string, any>) => ({
+    exec: async () => {
+      if (q.claveSeed) {
+        return store.get(storeKey(q.tenantId, q.claveSeed)) || null;
+      }
+      const doc = byId.get(String(q._id));
+      if (!doc || doc.tenantId.toString() !== q.tenantId.toString()) {
+        return null;
+      }
+      return {
+        ...doc,
+        save: jest.fn().mockImplementation(async function (this: any) {
+          indexDoc({ ...this });
+          return this;
+        }),
+      };
+    },
+  }));
 
   const tenantsService = {
     ensureSeeded: jest.fn().mockResolvedValue([tenantQro, tenantLm]),
@@ -220,6 +221,68 @@ describe('PlantillasService (Story 5.1 + 5.2)', () => {
     expect(plantillaModel.findOneAndUpdate).toHaveBeenCalledTimes(
       2 * PLANTILLAS_SEED.length * 2,
     );
+  });
+
+  it('ensureSeededForTenant (Story 4.1) siembra tenant fuera de INITIAL_TENANTS', async () => {
+    const docs = await service.ensureSeededForTenant(otherTenantId);
+    expect(docs).toHaveLength(PLANTILLAS_SEED.length);
+    expect(store.size).toBe(2);
+    for (const d of docs) {
+      expect(String((d as any).tenantId)).toBe(String(otherTenantId));
+    }
+    expect(tenantsService.ensureSeeded).not.toHaveBeenCalled();
+  });
+
+  it('ensureSeededForTenant es idempotente', async () => {
+    const first = await service.ensureSeededForTenant(otherTenantId);
+    const second = await service.ensureSeededForTenant(otherTenantId);
+    expect(store.size).toBe(2);
+    expect(second.map((d: any) => String(d._id)).sort()).toEqual(
+      first.map((d: any) => String(d._id)).sort(),
+    );
+  });
+
+  it('ensureSeededForTenant recupera tras E11000 en upsert concurrente', async () => {
+    const existing = {
+      _id: new Types.ObjectId(),
+      tenantId: otherTenantId,
+      claveSeed: CLAVE_SEED_COMERCIALES,
+      nombre: 'Ya existía',
+    };
+    indexDoc(existing);
+
+    const dup: any = new Error('E11000 duplicate key');
+    dup.code = 11000;
+
+    let calls = 0;
+    plantillaModel.findOneAndUpdate = jest.fn(
+      (filter: any, update: any, opts?: any) => ({
+        exec: async () => {
+          calls += 1;
+          if (filter.claveSeed === CLAVE_SEED_COMERCIALES && calls === 1) {
+            throw dup;
+          }
+          const key = storeKey(filter.tenantId, filter.claveSeed);
+          const found = store.get(key);
+          if (found) return found;
+          const doc = {
+            _id: new Types.ObjectId(),
+            ...(update.$setOnInsert || {}),
+            ...(update.$set || {}),
+          };
+          indexDoc(doc);
+          return doc;
+        },
+      }),
+    );
+
+    const docs = await service.ensureSeededForTenant(otherTenantId);
+    expect(docs).toHaveLength(PLANTILLAS_SEED.length);
+    expect(docs.some((d: any) => String(d._id) === String(existing._id))).toBe(
+      true,
+    );
+
+    mockSeedUpsert();
   });
 
   it('re-seed no pisa secciones ni activo editados', async () => {

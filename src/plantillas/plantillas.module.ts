@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { TenantsModule } from '../tenants/tenants.module';
 import { Plantilla, PlantillaSchema } from './schemas/plantilla.schema';
@@ -7,7 +7,7 @@ import { PlantillasController } from './plantillas.controller';
 
 @Module({
   imports: [
-    TenantsModule,
+    forwardRef(() => TenantsModule),
     MongooseModule.forFeature([
       { name: Plantilla.name, schema: PlantillaSchema },
     ]),

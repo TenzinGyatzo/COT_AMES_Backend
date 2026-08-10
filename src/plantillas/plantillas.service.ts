@@ -4,6 +4,8 @@ import {
   BadRequestException,
   OnModuleInit,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -32,6 +34,7 @@ export class PlantillasService implements OnModuleInit {
   constructor(
     @InjectModel(Plantilla.name)
     private plantillaModel: Model<PlantillaDocument>,
+    @Inject(forwardRef(() => TenantsService))
     private tenantsService: TenantsService,
     private tenantContext: TenantContextService,
   ) {}
@@ -135,16 +138,16 @@ export class PlantillasService implements OnModuleInit {
   }
 
   /**
-   * Story 5.1 — seed idempotente por tenant.
-   * 1) ensure tenants 2) upsert solo $setOnInsert (no pisa ediciones).
+   * Story 4.1 / 5.1 — seed idempotente para un tenant concreto.
+   * Upsert solo `$setOnInsert` (no pisa ediciones). No usa ALS/tenantContext.
+   * Retry/read-after E11000 (carrera concurrente en índice único).
    */
-  async ensureSeededForAllTenants(): Promise<Plantilla[]> {
-    const tenants = await this.tenantsService.ensureSeeded();
+  async ensureSeededForTenant(
+    tenantId: Types.ObjectId,
+  ): Promise<Plantilla[]> {
     const createdOrExisting: Plantilla[] = [];
-
-    for (const tenant of tenants) {
-      const tenantId = (tenant as any)._id as Types.ObjectId;
-      for (const seed of PLANTILLAS_SEED) {
+    for (const seed of PLANTILLAS_SEED) {
+      try {
         const doc = await this.plantillaModel
           .findOneAndUpdate(
             { tenantId, claveSeed: seed.claveSeed },
@@ -153,7 +156,48 @@ export class PlantillasService implements OnModuleInit {
           )
           .exec();
         createdOrExisting.push(doc);
+      } catch (err) {
+        if (this.isDuplicateKeyError(err)) {
+          const again = await this.plantillaModel
+            .findOne({ tenantId, claveSeed: seed.claveSeed })
+            .exec();
+          if (again) {
+            createdOrExisting.push(again);
+            continue;
+          }
+        }
+        throw err;
       }
+    }
+    return createdOrExisting;
+  }
+
+  private isDuplicateKeyError(err: unknown): boolean {
+    return (
+      typeof err === 'object' &&
+      err !== null &&
+      ((err as { code?: number | string }).code === 11000 ||
+        (err as { code?: number | string }).code === 'E11000')
+    );
+  }
+
+  /** Compensación onboard (Story 4.1): borrar seeds del tenant parcial. */
+  async deleteAllForTenant(tenantId: Types.ObjectId): Promise<void> {
+    await this.plantillaModel.deleteMany({ tenantId }).exec();
+  }
+
+  /**
+   * Story 5.1 — seed idempotente boot (solo INITIAL_TENANTS vía ensureSeeded).
+   * Tenants onboarded deben llamar `ensureSeededForTenant` desde onboard.
+   */
+  async ensureSeededForAllTenants(): Promise<Plantilla[]> {
+    const tenants = await this.tenantsService.ensureSeeded();
+    const createdOrExisting: Plantilla[] = [];
+
+    for (const tenant of tenants) {
+      const tenantId = (tenant as any)._id as Types.ObjectId;
+      const docs = await this.ensureSeededForTenant(tenantId);
+      createdOrExisting.push(...docs);
     }
 
     this.logger.log(

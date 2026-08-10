@@ -31,7 +31,7 @@ export function passwordResetTemplate(
                 Hola <strong>${nombre}</strong>,
               </p>
               <p style="margin: 0 0 20px; font-size: 16px; color: #333333; line-height: 1.6;">
-                Recibimos una solicitud para restablecer la contraseña de tu cuenta AMES.
+                Recibimos una solicitud para restablecer la contraseña de tu cuenta Aestimare.
               </p>
               <p style="margin: 0 0 30px; font-size: 16px; color: #333333; line-height: 1.6;">
                 Haz clic en el siguiente botón para crear una nueva contraseña:
@@ -63,7 +63,7 @@ export function passwordResetTemplate(
           <tr>
             <td style="background-color: #f8f9fa; padding: 30px; text-align: center; border-top: 1px solid #e9ecef;">
               <p style="margin: 0; font-size: 13px; color: #999999;">
-                © ${new Date().getFullYear()} Cotizador AMES. Todos los derechos reservados.
+                © ${new Date().getFullYear()} Aestimare. Todos los derechos reservados.
               </p>
             </td>
           </tr>

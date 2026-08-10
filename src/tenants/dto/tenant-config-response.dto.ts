@@ -73,6 +73,17 @@ export class TenantConfigResponseDto {
   correosNotificacion?: string[];
 
   @ApiPropertyOptional({
+    description: 'Cuenta Gmail SMTP configurada (FR-55). Nunca el secret.',
+  })
+  emailUser?: string;
+
+  @ApiProperty({
+    description:
+      'true si hay app password cifrada (emailSecretEnc). UI: estado configurado / rotar.',
+  })
+  emailCredentialsConfigured: boolean;
+
+  @ApiPropertyOptional({
     description: 'Días de vigencia default al crear cotización (Story 2.4)',
   })
   vigenciaDefaultDias?: number;

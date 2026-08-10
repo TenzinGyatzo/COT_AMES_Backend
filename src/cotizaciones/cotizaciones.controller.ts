@@ -71,7 +71,7 @@ export class CotizacionesController {
     name: 'X-Tenant-Id',
     required: false,
     description:
-      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
   })
   @ApiOperation({ summary: 'Crear una nueva cotización' })
   @ApiResponse({
@@ -99,7 +99,7 @@ export class CotizacionesController {
     name: 'X-Tenant-Id',
     required: false,
     description:
-      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
   })
   @ApiOperation({
     summary: 'Crear cotización (identidad CRM/guest flexible)',
@@ -134,7 +134,7 @@ export class CotizacionesController {
     name: 'X-Tenant-Id',
     required: false,
     description:
-      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
   })
   @ApiOperation({
     summary:
@@ -231,7 +231,7 @@ export class CotizacionesController {
     name: 'X-Tenant-Id',
     required: false,
     description:
-      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
   })
   @ApiOperation({
     summary: 'Listar cotizaciones con filtros opcionales y paginación',
@@ -292,7 +292,7 @@ export class CotizacionesController {
     name: 'X-Tenant-Id',
     required: false,
     description:
-      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
   })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -336,7 +336,7 @@ export class CotizacionesController {
     name: 'X-Tenant-Id',
     required: false,
     description:
-      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
   })
   @ApiOperation({ summary: 'Obtener una cotización por ID' })
   @ApiParam({ name: 'id', description: 'ID de la cotización' })
@@ -358,7 +358,7 @@ export class CotizacionesController {
     name: 'X-Tenant-Id',
     required: false,
     description:
-      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
   })
   @ApiOperation({
     summary: 'Repetir cotización (Story 6.12)',
@@ -394,7 +394,7 @@ export class CotizacionesController {
     name: 'X-Tenant-Id',
     required: false,
     description:
-      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
   })
   @ApiOperation({
     summary: 'Preview repetir cotización (wizard precargado)',
@@ -421,7 +421,7 @@ export class CotizacionesController {
     name: 'X-Tenant-Id',
     required: false,
     description:
-      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
   })
   @ApiOperation({ summary: 'Actualizar una cotización' })
   @ApiParam({ name: 'id', description: 'ID de la cotización' })
@@ -447,7 +447,7 @@ export class CotizacionesController {
     name: 'X-Tenant-Id',
     required: false,
     description:
-      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
   })
   @ApiOperation({
     summary: 'Cambiar estado manualmente (Story 6.10)',
@@ -480,7 +480,7 @@ export class CotizacionesController {
     name: 'X-Tenant-Id',
     required: false,
     description:
-      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
   })
   @ApiOperation({
     summary: 'Aceptar una cotización como administrador',
@@ -514,7 +514,7 @@ export class CotizacionesController {
     name: 'X-Tenant-Id',
     required: false,
     description:
-      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
   })
   @ApiOperation({
     summary: 'Rechazar una cotización como administrador',
@@ -544,7 +544,7 @@ export class CotizacionesController {
     name: 'X-Tenant-Id',
     required: false,
     description:
-      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
   })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -574,7 +574,7 @@ export class CotizacionesController {
     name: 'X-Tenant-Id',
     required: false,
     description:
-      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
   })
   @ApiOperation({
     summary: 'Agregar nota interna a una cotización',
@@ -601,7 +601,7 @@ export class CotizacionesController {
     name: 'X-Tenant-Id',
     required: false,
     description:
-      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
   })
   @ApiOperation({
     summary: 'Editar nota interna propia',
@@ -635,7 +635,7 @@ export class CotizacionesController {
     name: 'X-Tenant-Id',
     required: false,
     description:
-      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+      'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
   })
   @ApiOperation({
     summary: 'Eliminar nota interna propia',

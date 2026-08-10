@@ -82,6 +82,17 @@ export class TenantConfig {
   @Prop({ type: [String], default: [] })
   correosNotificacion?: string[];
 
+  /** Cuenta Gmail SMTP auth (FR-55 / Story 3.2). ≠ emailRemitente / branding.emailContacto. */
+  @Prop()
+  emailUser?: string;
+
+  /**
+   * App password cifrada AES-256-GCM (base64 iv‖tag‖ciphertext).
+   * Nunca plaintext; select:false + omitir en toResponse (AD-12 / NFR-8).
+   */
+  @Prop({ select: false })
+  emailSecretEnc?: string;
+
   /** Días de vigencia default al crear cotización sin fecha explícita (1–365). */
   @Prop({ default: 30 })
   vigenciaDefaultDias?: number;

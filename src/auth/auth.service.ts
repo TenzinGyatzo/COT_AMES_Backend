@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
+import { TenantsService } from '../tenants/tenants.service';
+import { Roles } from './enums/roles.enum';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -8,6 +10,7 @@ export class AuthService {
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
+    private tenantsService: TenantsService,
   ) {}
 
   async validateUser(email: string, passwordPlain: string): Promise<any> {
@@ -27,6 +30,14 @@ export class AuthService {
     );
     if (!isPasswordValid) {
       return null;
+    }
+
+    // Story 4.3 / AD-14: operativo/admin_tenant de tenant inactivo → mismo 401 genérico.
+    if (user.rol !== Roles.ADMIN_SISTEMA && user.tenantId) {
+      const tenant = await this.tenantsService.findById(String(user.tenantId));
+      if (!tenant || tenant.activo === false) {
+        return null;
+      }
     }
 
     const { ...result } = user.toObject();

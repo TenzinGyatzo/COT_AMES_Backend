@@ -25,7 +25,7 @@ import { TenantContextInterceptor } from '../tenants/tenant-context.interceptor'
   name: 'X-Tenant-Id',
   required: false,
   description:
-    'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo: no enviar — se ignora; tenant del JWT.',
+    'Obligatorio para admin_sistema (400 si ausente; 403 si inválido/inactivo). Operativo y admin_tenant: no enviar — se ignora; tenant del JWT.',
 })
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
@@ -34,7 +34,7 @@ export class DashboardController {
   @ApiOperation({
     summary: 'Totales CRM del tenant (Story 7.3)',
     description:
-      'Clientes, Contactos, Usuarios operativos y Servicios activos del tenant en contexto. Accesible a operativo y admin_sistema.',
+      'Clientes, Contactos, Usuarios operativos y Servicios activos del tenant en contexto. Accesible a operativo | admin_tenant | admin_sistema (AMES_ROLES / Story 2.5).',
   })
   @ApiResponse({ status: 200, type: EntityTotalsDto })
   getEntityTotals(): Promise<EntityTotalsDto> {

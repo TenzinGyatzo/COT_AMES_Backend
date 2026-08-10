@@ -6,7 +6,6 @@ import {
   IsEnum,
   IsMongoId,
   MinLength,
-  ValidateIf,
 } from 'class-validator';
 import { Roles } from '../../auth/enums/roles.enum';
 
@@ -43,9 +42,10 @@ export class CreateUserDto {
   rol: string;
 
   @ApiPropertyOptional({
-    description: 'Tenant asignado (obligatorio si rol=operativo)',
+    description:
+      'Tenant asignado. Opcional si el actor ancla el tenant (JWT o X-Tenant-Id); el servicio lo exige para operativo|admin_tenant cuando no hay anclaje.',
   })
-  @ValidateIf((o) => o.rol === Roles.OPERATIVO)
+  @IsOptional()
   @IsMongoId({ message: 'tenantId debe ser un ObjectId válido' })
   tenantId?: string;
 }

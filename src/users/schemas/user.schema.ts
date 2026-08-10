@@ -18,7 +18,7 @@ export class User {
   @Prop({ required: true, enum: Roles, default: Roles.ADMIN_SISTEMA })
   rol: string;
 
-  /** Opcional: admin_sistema sin tenant fijo; operativo tendrá uno (Story 1.6). */
+  /** Opcional: admin_sistema sin tenant fijo; operativo y admin_tenant tienen uno (AD-11). */
   @Prop({ type: Types.ObjectId, ref: 'Tenant', required: false, index: true })
   tenantId?: Types.ObjectId;
 

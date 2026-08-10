@@ -7,9 +7,12 @@ import {
   Param,
   Delete,
   Query,
+  Req,
   HttpCode,
   HttpStatus,
   UseGuards,
+  BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,28 +21,102 @@ import {
   ApiParam,
   ApiBearerAuth,
   ApiQuery,
+  ApiHeader,
 } from '@nestjs/swagger';
-import { UsersService } from './users.service';
+import { UsersService, type UsersActor } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { FilterUserDto } from './dto/filter-user.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { AdminGuard } from '../auth/guards/admin.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles as RolesDecorator } from '../auth/decorators/roles.decorator';
+import { Roles } from '../auth/enums/roles.enum';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { X_TENANT_ID_HEADER } from '../tenants/tenant-context.guard';
+import { TenantsService } from '../tenants/tenants.service';
+import { isStrictObjectId } from '../common/strict-object-id';
 
 @ApiTags('users')
 @Controller('users')
-@UseGuards(JwtAuthGuard, AdminGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@RolesDecorator(Roles.ADMIN_TENANT, Roles.ADMIN_SISTEMA)
 @ApiBearerAuth()
+@ApiHeader({
+  name: 'X-Tenant-Id',
+  required: false,
+  description:
+    'Para admin_sistema: tenant de soporte al listar/crear operativo|admin_tenant. No aplica a admin_tenant (usa JWT).',
+})
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly tenantsService: TenantsService,
+  ) {}
+
+  private async actorFrom(
+    user: {
+      rol?: string;
+      tenantId?: string;
+    },
+    req: { headers?: Record<string, unknown> },
+  ): Promise<UsersActor> {
+    const rol = user?.rol;
+    if (!rol) {
+      throw new BadRequestException('Usuario sin rol');
+    }
+
+    if (rol === Roles.ADMIN_TENANT) {
+      const tid = user.tenantId != null ? String(user.tenantId) : '';
+      if (!tid || !isStrictObjectId(tid)) {
+        throw new ForbiddenException('Usuario admin_tenant sin tenant asignado');
+      }
+      // Story 4.3 / AD-14: JWT previo no opera si el tenant está suspendido.
+      const tenant = await this.tenantsService.findById(tid);
+      if (!tenant || tenant.activo === false) {
+        throw new ForbiddenException('Tenant no encontrado o inactivo');
+      }
+      return { rol, tenantId: tid, supportTenantId: null };
+    }
+
+    let supportTenantId: string | null = null;
+    if (rol === Roles.ADMIN_SISTEMA) {
+      const raw = req.headers?.[X_TENANT_ID_HEADER];
+      if (Array.isArray(raw)) {
+        if (raw.length !== 1) {
+          throw new BadRequestException(
+            'Header X-Tenant-Id ambiguo: se esperaba un único valor',
+          );
+        }
+      }
+      const header = Array.isArray(raw) ? raw[0] : raw;
+      if (typeof header === 'string' && header.trim()) {
+        const tid = header.trim();
+        if (!isStrictObjectId(tid)) {
+          throw new BadRequestException('X-Tenant-Id inválido');
+        }
+        const tenant = await this.tenantsService.findById(tid);
+        // AD-14: admin_sistema puede soportar tenants inactivos (Usar contexto).
+        if (!tenant) {
+          throw new ForbiddenException('Tenant no encontrado');
+        }
+        supportTenantId = tid;
+      }
+    }
+
+    return {
+      rol,
+      tenantId: user.tenantId ?? null,
+      supportTenantId,
+    };
+  }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
-    summary: 'Crear usuario AMES',
+    summary: 'Crear usuario',
     description:
-      'Solo admin_sistema. Operativo requiere exactamente un tenant activo; admin_sistema sin tenant fijo (AD-8 / Story 1.6).',
+      'admin_tenant: solo operativo|admin_tenant de su tenant (403 si tenant inactivo). admin_sistema: soporte del tenant en header (activo o inactivo) o peers admin_sistema (AD-11 / AD-14 / AD-16 / Story 2.3).',
   })
   @ApiResponse({ status: 201, type: UserResponseDto })
   @ApiResponse({
@@ -47,24 +124,39 @@ export class UsersController {
     description: 'Datos o reglas rol↔tenant inválidas',
   })
   @ApiResponse({ status: 409, description: 'Email duplicado' })
-  @ApiResponse({ status: 403, description: 'Solo administrador de sistema' })
-  async create(@Body() createUserDto: CreateUserDto) {
-    const user = await this.usersService.create(createUserDto);
-    return this.usersService.sanitize(user);
+  @ApiResponse({ status: 403, description: 'Sin permiso o escalada denegada' })
+  async create(
+    @Body() createUserDto: CreateUserDto,
+    @CurrentUser() user: { rol?: string; tenantId?: string },
+    @Req() req: { headers?: Record<string, unknown> },
+  ) {
+    const created = await this.usersService.create(
+      createUserDto,
+      await this.actorFrom(user, req),
+    );
+    return this.usersService.sanitize(created);
   }
 
   @Get()
-  @ApiOperation({ summary: 'Listar usuarios AMES (default: activos)' })
+  @ApiOperation({
+    summary: 'Listar usuarios (default: activos)',
+    description:
+      'admin_tenant: solo su tenant. admin_sistema: usuarios del tenant en X-Tenant-Id más peers admin_sistema (vacío si no hay header).',
+  })
   @ApiQuery({ name: 'activo', required: false, type: Boolean })
   @ApiQuery({
     name: 'rol',
     required: false,
-    enum: ['operativo', 'admin_sistema'],
+    enum: ['operativo', 'admin_tenant', 'admin_sistema'],
   })
   @ApiQuery({ name: 'search', required: false, type: String })
   @ApiResponse({ status: 200, type: [UserResponseDto] })
-  findAll(@Query() filters?: FilterUserDto) {
-    return this.usersService.findAll(filters);
+  async findAll(
+    @Query() filters: FilterUserDto | undefined,
+    @CurrentUser() user: { rol?: string; tenantId?: string },
+    @Req() req: { headers?: Record<string, unknown> },
+  ) {
+    return this.usersService.findAll(filters, await this.actorFrom(user, req));
   }
 
   @Get(':id')
@@ -72,9 +164,16 @@ export class UsersController {
   @ApiParam({ name: 'id' })
   @ApiResponse({ status: 200, type: UserResponseDto })
   @ApiResponse({ status: 404, description: 'No encontrado' })
-  async findOne(@Param('id') id: string) {
-    const user = await this.usersService.findById(id);
-    return this.usersService.sanitize(user);
+  async findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: { rol?: string; tenantId?: string },
+    @Req() req: { headers?: Record<string, unknown> },
+  ) {
+    const found = await this.usersService.findManagedById(
+      id,
+      await this.actorFrom(user, req),
+    );
+    return this.usersService.sanitize(found);
   }
 
   @Patch(':id')
@@ -82,9 +181,18 @@ export class UsersController {
   @ApiParam({ name: 'id' })
   @ApiResponse({ status: 200, type: UserResponseDto })
   @ApiResponse({ status: 404, description: 'No encontrado' })
-  async update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
-    const user = await this.usersService.update(id, updateUserDto);
-    return this.usersService.sanitize(user);
+  async update(
+    @Param('id') id: string,
+    @Body() updateUserDto: UpdateUserDto,
+    @CurrentUser() user: { rol?: string; tenantId?: string },
+    @Req() req: { headers?: Record<string, unknown> },
+  ) {
+    const updated = await this.usersService.update(
+      id,
+      updateUserDto,
+      await this.actorFrom(user, req),
+    );
+    return this.usersService.sanitize(updated);
   }
 
   @Delete(':id')
@@ -95,8 +203,15 @@ export class UsersController {
   })
   @ApiParam({ name: 'id' })
   @ApiResponse({ status: 200, type: UserResponseDto })
-  async remove(@Param('id') id: string) {
-    const user = await this.usersService.softDelete(id);
-    return this.usersService.sanitize(user);
+  async remove(
+    @Param('id') id: string,
+    @CurrentUser() user: { rol?: string; tenantId?: string },
+    @Req() req: { headers?: Record<string, unknown> },
+  ) {
+    const removed = await this.usersService.softDelete(
+      id,
+      await this.actorFrom(user, req),
+    );
+    return this.usersService.sanitize(removed);
   }
 }

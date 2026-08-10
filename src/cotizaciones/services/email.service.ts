@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Types } from 'mongoose';
 import { EmailsService } from '../../emails/emails.service';
 
 export type QuotationEmailExtras = {
@@ -13,6 +14,7 @@ export class EmailService {
   constructor(private readonly emailsService: EmailsService) {}
 
   async sendAdminQuotationEmail(
+    tenantId: Types.ObjectId | string,
     email: string | string[],
     nombreContacto: string,
     folio: string,
@@ -24,6 +26,7 @@ export class EmailService {
   ): Promise<void> {
     try {
       await this.emailsService.sendAdminQuotationEmail(
+        tenantId,
         email,
         nombreContacto,
         folio,
@@ -52,6 +55,7 @@ export class EmailService {
 
   /** Story 6.13 — aviso interno post magic-link (propaga error; el caller swallow). */
   async sendInternalDecisionNotification(params: {
+    tenantId: Types.ObjectId | string;
     to: string[];
     folio: string;
     decision: 'aceptada' | 'rechazada';

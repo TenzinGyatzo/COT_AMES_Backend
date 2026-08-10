@@ -45,7 +45,7 @@ export class UpdateUserDto {
 
   @ApiPropertyOptional({
     description:
-      'Tenant asignado (obligatorio si el rol efectivo es operativo)',
+      'Tenant asignado (obligatorio si el rol efectivo es operativo o admin_tenant)',
   })
   @IsOptional()
   @ValidateIf((o) => o.tenantId !== null && o.tenantId !== undefined)
