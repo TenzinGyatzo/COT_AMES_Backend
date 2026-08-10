@@ -58,6 +58,18 @@ export class TenantConfigResponseDto {
   @ApiProperty({ description: 'Tenant efectivo (AD-2 / X-Tenant-Id)' })
   tenantId: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Nombre del tenant efectivo (join liviano). Para label UI sin GET /tenants (AD-16).',
+  })
+  tenantNombre?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Clave del tenant efectivo (join liviano). Para label UI sin GET /tenants (AD-16).',
+  })
+  tenantClave?: string;
+
   @ApiPropertyOptional({ type: TenantBrandingDto })
   branding?: TenantBrandingDto;
 

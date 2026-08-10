@@ -104,14 +104,37 @@ describe('TenantConfigService (Stories 2.1–2.5 + 3.2)', () => {
     getTenantId: jest.fn(() => tenantId),
   };
 
+  const tenantStore = new Map<string, { nombre?: string; clave?: string }>();
+
+  function tenantChainable(exec: () => Promise<any>) {
+    const q: {
+      select: (fields: string) => typeof q;
+      lean: () => typeof q;
+      exec: typeof exec;
+    } = {
+      select: () => q,
+      lean: () => q,
+      exec,
+    };
+    return q;
+  }
+
+  const tenantModel = {
+    findById: jest.fn((id: Types.ObjectId | string) =>
+      tenantChainable(async () => tenantStore.get(String(id)) || null),
+    ),
+  };
+
   let service: TenantConfigService;
 
   beforeEach(() => {
     store.clear();
+    tenantStore.clear();
     jest.clearAllMocks();
     process.env.TENANT_SECRETS_KEY = HEX_KEY;
     service = new TenantConfigService(
       tenantConfigModel as any,
+      tenantModel as any,
       tenantContext as any,
     );
   });
@@ -605,5 +628,50 @@ describe('TenantConfigService (Stories 2.1–2.5 + 3.2)', () => {
     expect(res.vigenciaDefaultDias).toBe(60);
     expect(res.bancarios?.banco).toBe('Banorte');
     expect(res.bancarios?.clabe).toBe('111');
+  });
+
+  it('toResponseAsync incluye tenantNombre y tenantClave del Tenant efectivo', async () => {
+    tenantStore.set(String(tenantId), {
+      nombre: 'AMES Querétaro',
+      clave: 'qro',
+    });
+    const doc = makeDoc(tenantId) as any;
+    const res = await service.toResponseAsync(doc);
+    expect(res.tenantNombre).toBe('AMES Querétaro');
+    expect(res.tenantClave).toBe('qro');
+    expect(tenantModel.findById).toHaveBeenCalledWith(tenantId);
+  });
+
+  it('toResponseAsync omite identidad si el Tenant no existe (sin throw)', async () => {
+    const doc = makeDoc(tenantId) as any;
+    const res = await service.toResponseAsync(doc);
+    expect(res.tenantNombre).toBeUndefined();
+    expect(res.tenantClave).toBeUndefined();
+    expect(res.tenantId).toBe(String(tenantId));
+  });
+
+  it('toResponseAsync omite identidad si el lookup falla (sin throw)', async () => {
+    tenantModel.findById.mockReturnValueOnce(
+      tenantChainable(async () => {
+        throw new Error('db down');
+      }),
+    );
+    const doc = makeDoc(tenantId) as any;
+    const res = await service.toResponseAsync(doc);
+    expect(res.tenantId).toBe(String(tenantId));
+    expect(res.tenantNombre).toBeUndefined();
+    expect(res.tenantClave).toBeUndefined();
+  });
+
+  it('toResponseAsync incluye identidad parcial (solo nombre o solo clave)', async () => {
+    tenantStore.set(String(tenantId), { nombre: 'Solo Nombre' });
+    const withNombre = await service.toResponseAsync(makeDoc(tenantId) as any);
+    expect(withNombre.tenantNombre).toBe('Solo Nombre');
+    expect(withNombre.tenantClave).toBeUndefined();
+
+    tenantStore.set(String(tenantId), { clave: 'solo-clave' });
+    const withClave = await service.toResponseAsync(makeDoc(tenantId) as any);
+    expect(withClave.tenantNombre).toBeUndefined();
+    expect(withClave.tenantClave).toBe('solo-clave');
   });
 });

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -11,6 +12,7 @@ import {
   TenantConfig,
   TenantConfigDocument,
 } from './schemas/tenant-config.schema';
+import { Tenant, TenantDocument } from './schemas/tenant.schema';
 import { TenantContextService } from './tenant-context.service';
 import { UpdateTenantBrandingDto } from './dto/update-tenant-branding.dto';
 import { UpdateTenantEmailDto } from './dto/update-tenant-email.dto';
@@ -33,9 +35,13 @@ const ALLOWED_MIME: Record<string, string> = {
 
 @Injectable()
 export class TenantConfigService {
+  private readonly logger = new Logger(TenantConfigService.name);
+
   constructor(
     @InjectModel(TenantConfig.name)
     private readonly tenantConfigModel: Model<TenantConfigDocument>,
+    @InjectModel(Tenant.name)
+    private readonly tenantModel: Model<TenantDocument>,
     private readonly tenantContext: TenantContextService,
   ) {}
 
@@ -578,13 +584,18 @@ export class TenantConfigService {
     return updated;
   }
 
-  toResponse(doc: TenantConfigDocument) {
+  toResponse(
+    doc: TenantConfigDocument,
+    identity?: { tenantNombre?: string; tenantClave?: string },
+  ) {
     const obj = doc.toObject ? doc.toObject() : (doc as any);
     const branding = obj.branding || {};
     const bancarios = obj.bancarios || {};
     return {
       _id: String(obj._id),
       tenantId: String(obj.tenantId),
+      ...(identity?.tenantNombre ? { tenantNombre: identity.tenantNombre } : {}),
+      ...(identity?.tenantClave ? { tenantClave: identity.tenantClave } : {}),
       branding: {
         logoUrl: branding.logoUrl || undefined,
         razonSocial: branding.razonSocial || undefined,
@@ -622,5 +633,39 @@ export class TenantConfigService {
         ? new Date(obj.updatedAt).toISOString()
         : undefined,
     };
+  }
+
+  /**
+   * Serializa config + identidad del Tenant efectivo (nombre/clave).
+   * Lookup fallido u omitido → sin campos (FE cae a id); nunca lanza por label.
+   */
+  async toResponseAsync(doc: TenantConfigDocument) {
+    const tenantId = doc?.tenantId;
+    let tenantNombre: string | undefined;
+    let tenantClave: string | undefined;
+    if (tenantId) {
+      try {
+        const tenant = await this.tenantModel
+          .findById(tenantId)
+          .select('nombre clave')
+          .lean()
+          .exec();
+        if (tenant) {
+          if (typeof tenant.nombre === 'string' && tenant.nombre.trim()) {
+            tenantNombre = tenant.nombre.trim();
+          }
+          if (typeof tenant.clave === 'string' && tenant.clave.trim()) {
+            tenantClave = tenant.clave.trim();
+          }
+        }
+      } catch (err) {
+        // omit identity — never 500 for label
+        this.logger.warn(
+          `toResponseAsync: no se pudo resolver identidad del tenant ${String(tenantId)}`,
+          err instanceof Error ? err.stack : String(err),
+        );
+      }
+    }
+    return this.toResponse(doc, { tenantNombre, tenantClave });
   }
 }

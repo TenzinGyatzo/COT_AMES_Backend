@@ -75,7 +75,7 @@ export class TenantConfigController {
   })
   async get() {
     const doc = await this.tenantConfigService.getForRequest();
-    return this.tenantConfigService.toResponse(doc);
+    return this.tenantConfigService.toResponseAsync(doc);
   }
 
   @Patch('branding')
@@ -94,7 +94,7 @@ export class TenantConfigController {
   })
   async patchBranding(@Body() dto: UpdateTenantBrandingDto) {
     const doc = await this.tenantConfigService.updateBranding(dto);
-    return this.tenantConfigService.toResponse(doc);
+    return this.tenantConfigService.toResponseAsync(doc);
   }
 
   @Patch('email')
@@ -114,7 +114,7 @@ export class TenantConfigController {
   })
   async patchEmail(@Body() dto: UpdateTenantEmailDto) {
     const doc = await this.tenantConfigService.updateEmailConfig(dto);
-    return this.tenantConfigService.toResponse(doc);
+    return this.tenantConfigService.toResponseAsync(doc);
   }
 
   @Patch('vigencia-bancarios')
@@ -136,7 +136,7 @@ export class TenantConfigController {
   })
   async patchVigenciaBancarios(@Body() dto: UpdateTenantVigenciaBancariosDto) {
     const doc = await this.tenantConfigService.updateVigenciaBancarios(dto);
-    return this.tenantConfigService.toResponse(doc);
+    return this.tenantConfigService.toResponseAsync(doc);
   }
 
   @Post('branding/logo')
@@ -173,7 +173,7 @@ export class TenantConfigController {
       throw new BadRequestException('Archivo de logo requerido');
     }
     const doc = await this.tenantConfigService.saveLogo(file);
-    return this.tenantConfigService.toResponse(doc);
+    return this.tenantConfigService.toResponseAsync(doc);
   }
 
   @Delete('branding/logo')
@@ -189,7 +189,7 @@ export class TenantConfigController {
   })
   async deleteLogo() {
     const doc = await this.tenantConfigService.clearLogo();
-    return this.tenantConfigService.toResponse(doc);
+    return this.tenantConfigService.toResponseAsync(doc);
   }
 
   @Post('bancarios/logo')
@@ -227,7 +227,7 @@ export class TenantConfigController {
       throw new BadRequestException('Archivo de logo requerido');
     }
     const doc = await this.tenantConfigService.saveBankLogo(file);
-    return this.tenantConfigService.toResponse(doc);
+    return this.tenantConfigService.toResponseAsync(doc);
   }
 
   @Delete('bancarios/logo')
@@ -243,6 +243,6 @@ export class TenantConfigController {
   })
   async deleteBankLogo() {
     const doc = await this.tenantConfigService.clearBankLogo();
-    return this.tenantConfigService.toResponse(doc);
+    return this.tenantConfigService.toResponseAsync(doc);
   }
 }
