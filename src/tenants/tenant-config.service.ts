@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import {
   TenantConfig,
@@ -21,6 +20,11 @@ import {
   encryptSecret,
   TenantSecretsKeyError,
 } from './tenant-secrets.crypto';
+import {
+  ensureDir,
+  unlinkQuiet,
+  writeBufferFile,
+} from '../common/uploads/disk-upload';
 
 const LOGO_DIR = join(process.cwd(), 'uploads', 'tenant-logos');
 const BANK_LOGO_DIR = join(process.cwd(), 'uploads', 'tenant-bank-logos');
@@ -55,15 +59,11 @@ export class TenantConfigService {
   }
 
   private ensureLogoDir() {
-    if (!existsSync(LOGO_DIR)) {
-      mkdirSync(LOGO_DIR, { recursive: true });
-    }
+    ensureDir(LOGO_DIR);
   }
 
   private ensureBankLogoDir() {
-    if (!existsSync(BANK_LOGO_DIR)) {
-      mkdirSync(BANK_LOGO_DIR, { recursive: true });
-    }
+    ensureDir(BANK_LOGO_DIR);
   }
 
   private logoPublicUrl(tenantId: Types.ObjectId, ext: string): string {
@@ -83,28 +83,14 @@ export class TenantConfigService {
   private removeLogoFiles(tenantId: Types.ObjectId, keepExt?: string) {
     for (const ext of LOGO_EXTS) {
       if (keepExt && ext === keepExt) continue;
-      const p = join(LOGO_DIR, `${String(tenantId)}${ext}`);
-      if (existsSync(p)) {
-        try {
-          unlinkSync(p);
-        } catch {
-          /* ignore */
-        }
-      }
+      unlinkQuiet(join(LOGO_DIR, `${String(tenantId)}${ext}`));
     }
   }
 
   private removeBankLogoFiles(tenantId: Types.ObjectId, keepExt?: string) {
     for (const ext of LOGO_EXTS) {
       if (keepExt && ext === keepExt) continue;
-      const p = join(BANK_LOGO_DIR, `${String(tenantId)}${ext}`);
-      if (existsSync(p)) {
-        try {
-          unlinkSync(p);
-        } catch {
-          /* ignore */
-        }
-      }
+      unlinkQuiet(join(BANK_LOGO_DIR, `${String(tenantId)}${ext}`));
     }
   }
 
@@ -467,11 +453,7 @@ export class TenantConfigService {
     this.ensureLogoDir();
 
     const dest = join(LOGO_DIR, `${String(tenantId)}${ext}`);
-    try {
-      writeFileSync(dest, file.buffer);
-    } catch {
-      throw new BadRequestException('No se pudo escribir el logo en disco');
-    }
+    writeBufferFile(dest, file.buffer, 'No se pudo escribir el logo en disco');
 
     this.removeLogoFiles(tenantId, ext);
 
@@ -485,21 +467,13 @@ export class TenantConfigService {
         ),
       ).exec();
       if (!updated) {
-        try {
-          unlinkSync(dest);
-        } catch {
-          /* ignore */
-        }
+        unlinkQuiet(dest);
         throw new BadRequestException('No se pudo guardar el logo');
       }
       return updated;
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
-      try {
-        unlinkSync(dest);
-      } catch {
-        /* ignore */
-      }
+      unlinkQuiet(dest);
       throw err;
     }
   }
@@ -528,13 +502,11 @@ export class TenantConfigService {
     this.ensureBankLogoDir();
 
     const dest = join(BANK_LOGO_DIR, `${String(tenantId)}${ext}`);
-    try {
-      writeFileSync(dest, file.buffer);
-    } catch {
-      throw new BadRequestException(
-        'No se pudo escribir el logo del banco en disco',
-      );
-    }
+    writeBufferFile(
+      dest,
+      file.buffer,
+      'No se pudo escribir el logo del banco en disco',
+    );
 
     this.removeBankLogoFiles(tenantId, ext);
 
@@ -548,21 +520,13 @@ export class TenantConfigService {
         ),
       ).exec();
       if (!updated) {
-        try {
-          unlinkSync(dest);
-        } catch {
-          /* ignore */
-        }
+        unlinkQuiet(dest);
         throw new BadRequestException('No se pudo guardar el logo del banco');
       }
       return updated;
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
-      try {
-        unlinkSync(dest);
-      } catch {
-        /* ignore */
-      }
+      unlinkQuiet(dest);
       throw err;
     }
   }

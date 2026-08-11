@@ -300,6 +300,15 @@ export class CreateCotizacionAdminDto {
 
   @ApiPropertyOptional({
     description:
+      'Si true, el PDF puede incluir imágenes de producto. Omitido → default AD-26 (true si algún producto de línea tiene imagenUrl). Story 8.2',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  incluirImagenesPdf?: boolean;
+
+  @ApiPropertyOptional({
+    description:
       'Plantillas a aplicar (orden = páginas tras el cuerpo). Vacío/omitido = ninguna. Story 6.5',
     type: [CreatePlantillaCotizacionDto],
   })

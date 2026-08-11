@@ -2,6 +2,7 @@ import {
   ForbiddenException,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   ValidationPipe,
 } from '@nestjs/common';
 import { Types } from 'mongoose';
@@ -10,8 +11,8 @@ import { plainToInstance } from 'class-transformer';
 import { ServiciosService } from './servicios.service';
 import { TenantContextService } from '../tenants/tenant-context.service';
 import { TenantsService } from '../tenants/tenants.service';
-import { CategoriaServicio } from './enums/categoria-servicio.enum';
 import { CreateServicioDto } from './dto/create-servicio.dto';
+import { TipoItem } from './enums/tipo-item.enum';
 import { FilterServicioDto } from './dto/filter-servicio.dto';
 import { ServicioOrden } from './enums/servicio-orden.enum';
 
@@ -23,9 +24,11 @@ const queryPipe = () =>
     transformOptions: { enableImplicitConversion: true },
   });
 
-describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
+describe('ServiciosService (Stories 4.x / 5.3 / 6.1 tipo / 6.2 codigo)', () => {
   const tenantId = new Types.ObjectId();
   const otherTenantId = new Types.ObjectId();
+  const categoriaId = new Types.ObjectId();
+  const otherCategoriaId = new Types.ObjectId();
   const savedDocs: any[] = [];
 
   const servicioModel: any = jest.fn().mockImplementation((data: any) => {
@@ -48,7 +51,11 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
   servicioModel.deleteOne = jest.fn().mockReturnValue({
     exec: jest.fn().mockResolvedValue({ deletedCount: 1 }),
   });
-  servicioModel.updateMany = jest.fn().mockResolvedValue({ modifiedCount: 0 });
+
+  const categoriaModel: any = {
+    findOne: jest.fn(),
+    findById: jest.fn(),
+  };
 
   const tenantContext = {
     getTenantId: jest.fn().mockReturnValue(tenantId),
@@ -60,43 +67,171 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
 
   const service = new ServiciosService(
     servicioModel as any,
+    categoriaModel as any,
     tenantContext,
     tenantsService,
   );
+
+  function mockCategoriaActiva(
+    id: Types.ObjectId = categoriaId,
+    tid: Types.ObjectId = tenantId,
+    codigo = 'MED',
+  ) {
+    categoriaModel.findOne.mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: id,
+        tenantId: tid,
+        codigo,
+        activo: true,
+      }),
+    });
+  }
 
   beforeEach(() => {
     jest.clearAllMocks();
     savedDocs.length = 0;
     (tenantContext.getTenantId as jest.Mock).mockReturnValue(tenantId);
     servicioModel.mockClear();
-    servicioModel.updateMany.mockResolvedValue({ modifiedCount: 0 });
     (tenantsService.findById as jest.Mock).mockReset();
+    mockCategoriaActiva();
   });
 
-  it('create asocia tenantId del contexto + categoria + MXN', async () => {
+  it('create asocia tenantId + categoriaId + MXN', async () => {
     const created = await service.create({
       nombre: '  Examen médico  ',
       precioUnitario: 500,
-      categoria: CategoriaServicio.MED,
+      categoriaId: categoriaId.toString(),
+      tipo: TipoItem.SERVICIO,
       moneda: 'USD',
     });
 
     expect(created.nombre).toBe('Examen médico');
-    expect(created.categoria).toBe(CategoriaServicio.MED);
+    expect(created.categoriaId).toEqual(categoriaId);
+    expect(created.tipo).toBe(TipoItem.SERVICIO);
     expect(created.moneda).toBe('MXN');
     expect(created.tenantId).toEqual(tenantId);
     expect(created.activo).toBe(true);
+    expect(categoriaModel.findOne).toHaveBeenCalledWith({
+      _id: categoriaId.toString(),
+      tenantId,
+    });
+  });
+
+  it('create persiste tipo producto', async () => {
+    const created = await service.create({
+      nombre: 'Extintor',
+      precioUnitario: 800,
+      categoriaId: categoriaId.toString(),
+      tipo: TipoItem.PRODUCTO,
+    });
+    expect(created.tipo).toBe(TipoItem.PRODUCTO);
+  });
+
+  it('create persiste codigo no vacío', async () => {
+    const created = await service.create({
+      nombre: 'Extintor',
+      precioUnitario: 800,
+      categoriaId: categoriaId.toString(),
+      tipo: TipoItem.PRODUCTO,
+      codigo: '  SKU-1  ',
+    });
+    expect(created.codigo).toBe('SKU-1');
+  });
+
+  it('create con codigo vacío/whitespace no persiste el campo', async () => {
+    const created = await service.create({
+      nombre: 'Sin código',
+      precioUnitario: 10,
+      categoriaId: categoriaId.toString(),
+      tipo: TipoItem.SERVICIO,
+      codigo: '   ',
+    });
+    expect(created.codigo).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(created, 'codigo')).toBe(
+      false,
+    );
+  });
+
+  it('create codigo duplicado → ConflictException', async () => {
+    servicioModel.mockImplementationOnce((data: any) => ({
+      ...data,
+      save: jest.fn().mockRejectedValue({ code: 11000 }),
+    }));
+    await expect(
+      service.create({
+        nombre: 'Dup',
+        precioUnitario: 10,
+        categoriaId: categoriaId.toString(),
+        tipo: TipoItem.SERVICIO,
+        codigo: 'SKU-1',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('CreateServicioDto exige tipo y rechaza valores inválidos', () => {
+    const sinTipo = plainToInstance(CreateServicioDto, {
+      nombre: 'Servicio',
+      precioUnitario: 10,
+      categoriaId: categoriaId.toString(),
+    });
+    expect(validateSync(sinTipo).some((e) => e.property === 'tipo')).toBe(true);
+
+    const invalido = plainToInstance(CreateServicioDto, {
+      nombre: 'Servicio',
+      precioUnitario: 10,
+      categoriaId: categoriaId.toString(),
+      tipo: 'otro',
+    });
+    expect(validateSync(invalido).some((e) => e.property === 'tipo')).toBe(
+      true,
+    );
   });
 
   it('create con descripción opcional vacía no la persiste', async () => {
     const created = await service.create({
       nombre: 'Capacitación',
       precioUnitario: 100,
-      categoria: CategoriaServicio.CAP,
+      categoriaId: categoriaId.toString(),
+      tipo: TipoItem.SERVICIO,
       descripcion: '   ',
     });
 
     expect(created.descripcion).toBeUndefined();
+  });
+
+  it('create rechaza categoría de otro tenant (findOne null)', async () => {
+    categoriaModel.findOne.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(null),
+    });
+
+    await expect(
+      service.create({
+        nombre: 'X',
+        precioUnitario: 1,
+        categoriaId: new Types.ObjectId().toString(),
+      tipo: TipoItem.SERVICIO,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('create rechaza categoría inactiva (activo: false)', async () => {
+    categoriaModel.findOne.mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: categoriaId,
+        tenantId,
+        codigo: 'MED',
+        activo: false,
+      }),
+    });
+
+    await expect(
+      service.create({
+        nombre: 'X',
+        precioUnitario: 1,
+        categoriaId: categoriaId.toString(),
+      tipo: TipoItem.SERVICIO,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('create propaga ForbiddenException de tenant', async () => {
@@ -108,19 +243,43 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
       service.create({
         nombre: 'X',
         precioUnitario: 1,
-        categoria: CategoriaServicio.OTR,
+        categoriaId: categoriaId.toString(),
+      tipo: TipoItem.SERVICIO,
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('CreateServicioDto rechaza categoría inválida', () => {
-    const dto = plainToInstance(CreateServicioDto, {
+  it('CreateServicioDto exige categoriaId ObjectId y rechaza enum legacy', () => {
+    const invalid = plainToInstance(CreateServicioDto, {
       nombre: 'Servicio',
       precioUnitario: 10,
-      categoria: 'INVALIDA',
+      categoriaId: 'INVALIDA',
+      tipo: TipoItem.SERVICIO,
     });
-    const errors = validateSync(dto);
-    expect(errors.some((e) => e.property === 'categoria')).toBe(true);
+    expect(
+      validateSync(invalid).some((e) => e.property === 'categoriaId'),
+    ).toBe(true);
+
+    const withEnum = plainToInstance(CreateServicioDto, {
+      nombre: 'Servicio',
+      precioUnitario: 10,
+      categoria: 'MED',
+    });
+    // whitelist en pipe; validateSync sin whitelist no quita — property categoria no está en DTO
+    expect(withEnum).not.toHaveProperty('categoriaId');
+  });
+
+  it('CreateServicioDto ValidationPipe forbidNonWhitelisted rechaza categoria enum', async () => {
+    await expect(
+      queryPipe().transform(
+        {
+          nombre: 'Servicio',
+          precioUnitario: 10,
+          categoria: 'MED',
+        },
+        { type: 'body', metatype: CreateServicioDto, data: '' },
+      ),
+    ).rejects.toBeTruthy();
   });
 
   it('FilterServicioDto Transform: query string "false" → boolean false', () => {
@@ -135,7 +294,7 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
     expect(validateSync(dto)).toHaveLength(0);
   });
 
-  it('FilterServicioDto ValidationPipe: activo=false no se convierte a true (Story 4.5)', async () => {
+  it('FilterServicioDto ValidationPipe: activo=false no se convierte a true', async () => {
     const dto = (await queryPipe().transform(
       { activo: 'false', page: '1', limit: '20' },
       { type: 'query', metatype: FilterServicioDto, data: '' },
@@ -160,12 +319,12 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
     ).rejects.toBeTruthy();
   });
 
-  it('update cambia campos, fuerza MXN y $unset descripción vacía', async () => {
+  it('update con categoriaId fuerza MXN y $unset descripción + categoria legacy', async () => {
     const id = new Types.ObjectId().toString();
     const updated = {
       _id: id,
       nombre: 'Nuevo',
-      categoria: CategoriaServicio.SH,
+      categoriaId,
       precioUnitario: 200,
       moneda: 'MXN',
       tenantId,
@@ -176,7 +335,7 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
 
     const res = await service.update(id, {
       nombre: '  Nuevo  ',
-      categoria: CategoriaServicio.SH,
+      categoriaId: categoriaId.toString(),
       precioUnitario: 200,
       descripcion: '   ',
       moneda: 'USD',
@@ -187,15 +346,147 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
       {
         $set: {
           nombre: 'Nuevo',
-          categoria: CategoriaServicio.SH,
+          categoriaId,
           precioUnitario: 200,
           moneda: 'MXN',
         },
-        $unset: { descripcion: 1 },
+        $unset: { categoria: '', descripcion: 1 },
       },
       { new: true },
     );
     expect(res.nombre).toBe('Nuevo');
+  });
+
+  it('update cambia tipo', async () => {
+    const id = new Types.ObjectId().toString();
+    servicioModel.findOneAndUpdate.mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: id,
+        tipo: TipoItem.PRODUCTO,
+        tenantId,
+      }),
+    });
+
+    await service.update(id, { tipo: TipoItem.PRODUCTO });
+
+    expect(servicioModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: id, tenantId },
+      {
+        $set: {
+          tipo: TipoItem.PRODUCTO,
+          moneda: 'MXN',
+        },
+      },
+      { new: true },
+    );
+  });
+
+  it('update con tipo null no hace $set de tipo', async () => {
+    const id = new Types.ObjectId().toString();
+    servicioModel.findOneAndUpdate.mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: id,
+        nombre: 'X',
+        tenantId,
+      }),
+    });
+
+    await service.update(id, {
+      tipo: null as unknown as TipoItem,
+      nombre: 'X',
+    });
+
+    expect(servicioModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: id, tenantId },
+      {
+        $set: {
+          nombre: 'X',
+          moneda: 'MXN',
+        },
+      },
+      { new: true },
+    );
+  });
+
+  it('update cambia codigo', async () => {
+    const id = new Types.ObjectId().toString();
+    servicioModel.findOneAndUpdate.mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: id,
+        codigo: 'SKU-2',
+        tenantId,
+      }),
+    });
+
+    await service.update(id, { codigo: '  SKU-2  ' });
+
+    expect(servicioModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: id, tenantId },
+      {
+        $set: {
+          codigo: 'SKU-2',
+          moneda: 'MXN',
+        },
+      },
+      { new: true },
+    );
+  });
+
+  it('update limpia codigo → $unset', async () => {
+    const id = new Types.ObjectId().toString();
+    servicioModel.findOneAndUpdate.mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: id,
+        tenantId,
+      }),
+    });
+
+    await service.update(id, { codigo: '   ' });
+
+    expect(servicioModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: id, tenantId },
+      {
+        $set: { moneda: 'MXN' },
+        $unset: { codigo: 1 },
+      },
+      { new: true },
+    );
+  });
+
+  it('update codigo duplicado → ConflictException', async () => {
+    const id = new Types.ObjectId().toString();
+    servicioModel.findOneAndUpdate.mockReturnValue({
+      exec: jest.fn().mockRejectedValue({ code: 11000 }),
+    });
+
+    await expect(
+      service.update(id, { codigo: 'SKU-1' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('update sin categoriaId no hace $unset de categoria legacy', async () => {
+    const id = new Types.ObjectId().toString();
+    servicioModel.findOneAndUpdate.mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: id,
+        nombre: 'Solo nombre',
+        categoriaId,
+        tenantId,
+      }),
+    });
+
+    await service.update(id, { nombre: 'Solo nombre' });
+
+    expect(servicioModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: id, tenantId },
+      {
+        $set: {
+          nombre: 'Solo nombre',
+          moneda: 'MXN',
+        },
+      },
+      { new: true },
+    );
   });
 
   it('findOne cross-tenant → NotFound con filtro tenantId', async () => {
@@ -211,17 +502,6 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
       tenantId,
     });
     expect(tenantId).not.toEqual(otherTenantId);
-  });
-
-  it('onModuleInit backfill OTR en legacy sin categoria', async () => {
-    servicioModel.updateMany.mockResolvedValue({ modifiedCount: 3 });
-    await service.onModuleInit();
-    expect(servicioModel.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        $or: expect.any(Array),
-      }),
-      { $set: { categoria: CategoriaServicio.OTR } },
-    );
   });
 
   it('findAll default filtra activos ($ne: false) paginado con tenantId', async () => {
@@ -316,7 +596,7 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
     );
   });
 
-  it('findAll filtra por categoria + nombre + activo', async () => {
+  it('findAll filtra por categoriaId + nombre + activo', async () => {
     const execFind = jest.fn().mockResolvedValue([]);
     const limitFn = jest.fn().mockReturnValue({ exec: execFind });
     const skip = jest.fn().mockReturnValue({ limit: limitFn });
@@ -328,7 +608,7 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
 
     await service.findAll({
       nombre: 'Rx',
-      categoria: CategoriaServicio.MED,
+      categoriaId: categoriaId.toString(),
       activo: false,
       page: 2,
       limit: 10,
@@ -338,10 +618,52 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
       tenantId,
       activo: false,
       nombre: { $regex: 'Rx', $options: 'i' },
-      categoria: CategoriaServicio.MED,
+      categoriaId,
     });
     expect(skip).toHaveBeenCalledWith(10);
     expect(limitFn).toHaveBeenCalledWith(10);
+  });
+
+  it('findAll filtra por tipo', async () => {
+    const execFind = jest.fn().mockResolvedValue([]);
+    const limitFn = jest.fn().mockReturnValue({ exec: execFind });
+    const skip = jest.fn().mockReturnValue({ limit: limitFn });
+    const sort = jest.fn().mockReturnValue({ skip });
+    servicioModel.find.mockReturnValue({ sort });
+    servicioModel.countDocuments.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(0),
+    });
+
+    await service.findAll({ tipo: TipoItem.PRODUCTO });
+
+    expect(servicioModel.find).toHaveBeenCalledWith({
+      tenantId,
+      activo: { $ne: false },
+      tipo: TipoItem.PRODUCTO,
+    });
+  });
+
+  it('findAll tipo=servicio incluye docs legacy sin campo', async () => {
+    const execFind = jest.fn().mockResolvedValue([]);
+    const limitFn = jest.fn().mockReturnValue({ exec: execFind });
+    const skip = jest.fn().mockReturnValue({ limit: limitFn });
+    const sort = jest.fn().mockReturnValue({ skip });
+    servicioModel.find.mockReturnValue({ sort });
+    servicioModel.countDocuments.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(0),
+    });
+
+    await service.findAll({ tipo: TipoItem.SERVICIO });
+
+    expect(servicioModel.find).toHaveBeenCalledWith({
+      tenantId,
+      activo: { $ne: false },
+      $or: [
+        { tipo: TipoItem.SERVICIO },
+        { tipo: { $exists: false } },
+        { tipo: null },
+      ],
+    });
   });
 
   it('findAll totalPages con varios resultados', async () => {
@@ -382,11 +704,12 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
     expect(res.activo).toBe(false);
   });
 
-  it('toggleActivo reactiva servicio inactivo', async () => {
+  it('toggleActivo reactiva servicio inactivo si categoría activa', async () => {
     const id = new Types.ObjectId().toString();
     const doc = {
       _id: id,
       activo: false,
+      categoriaId,
       tenantId,
       save: jest.fn().mockImplementation(async function (this: any) {
         return this;
@@ -395,11 +718,45 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
     servicioModel.findOne.mockReturnValue({
       exec: jest.fn().mockResolvedValue(doc),
     });
+    mockCategoriaActiva();
 
     const res = await service.toggleActivo(id);
 
     expect(res.activo).toBe(true);
     expect(doc.save).toHaveBeenCalled();
+    expect(categoriaModel.findOne).toHaveBeenCalledWith({
+      _id: String(categoriaId),
+      tenantId,
+    });
+  });
+
+  it('toggleActivo no reactiva si categoría inactiva', async () => {
+    const id = new Types.ObjectId().toString();
+    const doc = {
+      _id: id,
+      activo: false,
+      categoriaId,
+      tenantId,
+      save: jest.fn().mockImplementation(async function (this: any) {
+        return this;
+      }),
+    };
+    servicioModel.findOne.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(doc),
+    });
+    categoriaModel.findOne.mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: categoriaId,
+        tenantId,
+        codigo: 'MED',
+        activo: false,
+      }),
+    });
+
+    await expect(service.toggleActivo(id)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(doc.save).not.toHaveBeenCalled();
   });
 
   it('toggleActivo con activo ausente (legacy) desactiva a false', async () => {
@@ -421,23 +778,289 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
     expect(doc.save).toHaveBeenCalled();
   });
 
-  it('createForTenants crea un doc por tenant activo', async () => {
+  it('createForTenants remapea categoriaId por codigo en cada tenant', async () => {
     (tenantsService.findById as jest.Mock)
       .mockResolvedValueOnce({ _id: tenantId, activo: true })
       .mockResolvedValueOnce({ _id: otherTenantId, activo: true });
 
+    // 1) assert fuente (tenant contexto) 2) resolve destino 1 3) resolve destino 2
+    categoriaModel.findOne
+      .mockReturnValueOnce({
+        exec: jest.fn().mockResolvedValue({
+          _id: categoriaId,
+          tenantId,
+          codigo: 'MED',
+          activo: true,
+        }),
+      })
+      .mockReturnValueOnce({
+        exec: jest.fn().mockResolvedValue({
+          _id: categoriaId,
+          tenantId,
+          codigo: 'MED',
+          activo: true,
+        }),
+      })
+      .mockReturnValueOnce({
+        exec: jest.fn().mockResolvedValue({
+          _id: otherCategoriaId,
+          tenantId: otherTenantId,
+          codigo: 'MED',
+          activo: true,
+        }),
+      });
+
     const res = await service.createForTenants({
       nombre: 'Examen',
       precioUnitario: 100,
-      categoria: CategoriaServicio.MED,
+      categoriaId: categoriaId.toString(),
+      tipo: TipoItem.SERVICIO,
       tenantIds: [tenantId.toString(), otherTenantId.toString()],
     });
 
     expect(res.created).toHaveLength(2);
     expect(savedDocs).toHaveLength(2);
     expect(savedDocs[0].tenantId).toEqual(tenantId);
+    expect(savedDocs[0].categoriaId).toEqual(categoriaId);
+    expect(savedDocs[0].tipo).toBe(TipoItem.SERVICIO);
     expect(savedDocs[1].tenantId).toEqual(otherTenantId);
-    expect(tenantContext.getTenantId).not.toHaveBeenCalled();
+    expect(savedDocs[1].categoriaId).toEqual(otherCategoriaId);
+    expect(savedDocs[1].tipo).toBe(TipoItem.SERVICIO);
+    expect(tenantContext.getTenantId).toHaveBeenCalled();
+    expect(categoriaModel.findOne).toHaveBeenNthCalledWith(1, {
+      _id: categoriaId.toString(),
+      tenantId,
+    });
+  });
+
+  it('createForTenants propaga tipo producto a ambos destinos', async () => {
+    (tenantsService.findById as jest.Mock)
+      .mockResolvedValueOnce({ _id: tenantId, activo: true })
+      .mockResolvedValueOnce({ _id: otherTenantId, activo: true });
+    categoriaModel.findOne
+      .mockReturnValueOnce({
+        exec: jest.fn().mockResolvedValue({
+          _id: categoriaId,
+          tenantId,
+          codigo: 'MED',
+          activo: true,
+        }),
+      })
+      .mockReturnValueOnce({
+        exec: jest.fn().mockResolvedValue({
+          _id: categoriaId,
+          tenantId,
+          codigo: 'MED',
+          activo: true,
+        }),
+      })
+      .mockReturnValueOnce({
+        exec: jest.fn().mockResolvedValue({
+          _id: otherCategoriaId,
+          tenantId: otherTenantId,
+          codigo: 'MED',
+          activo: true,
+        }),
+      });
+
+    await service.createForTenants({
+      nombre: 'Kit',
+      precioUnitario: 50,
+      categoriaId: categoriaId.toString(),
+      tipo: TipoItem.PRODUCTO,
+      tenantIds: [tenantId.toString(), otherTenantId.toString()],
+    });
+
+    expect(savedDocs).toHaveLength(2);
+    expect(savedDocs[0].tipo).toBe(TipoItem.PRODUCTO);
+    expect(savedDocs[1].tipo).toBe(TipoItem.PRODUCTO);
+  });
+
+  it('createForTenants propaga codigo de ítem a ambos destinos', async () => {
+    (tenantsService.findById as jest.Mock)
+      .mockResolvedValueOnce({ _id: tenantId, activo: true })
+      .mockResolvedValueOnce({ _id: otherTenantId, activo: true });
+    categoriaModel.findOne
+      .mockReturnValueOnce({
+        exec: jest.fn().mockResolvedValue({
+          _id: categoriaId,
+          tenantId,
+          codigo: 'MED',
+          activo: true,
+        }),
+      })
+      .mockReturnValueOnce({
+        exec: jest.fn().mockResolvedValue({
+          _id: categoriaId,
+          tenantId,
+          codigo: 'MED',
+          activo: true,
+        }),
+      })
+      .mockReturnValueOnce({
+        exec: jest.fn().mockResolvedValue({
+          _id: otherCategoriaId,
+          tenantId: otherTenantId,
+          codigo: 'MED',
+          activo: true,
+        }),
+      });
+
+    await service.createForTenants({
+      nombre: 'Extintor',
+      precioUnitario: 800,
+      categoriaId: categoriaId.toString(),
+      tipo: TipoItem.PRODUCTO,
+      codigo: 'SKU-MT',
+      tenantIds: [tenantId.toString(), otherTenantId.toString()],
+    });
+
+    expect(savedDocs).toHaveLength(2);
+    expect(savedDocs[0].codigo).toBe('SKU-MT');
+    expect(savedDocs[1].codigo).toBe('SKU-MT');
+    expect(savedDocs[0].tenantId).toEqual(tenantId);
+    expect(savedDocs[1].tenantId).toEqual(otherTenantId);
+  });
+
+  it('createForTenants codigo duplicado en un destino → ConflictException + compensación', async () => {
+    (tenantsService.findById as jest.Mock)
+      .mockResolvedValueOnce({ _id: tenantId, activo: true })
+      .mockResolvedValueOnce({ _id: otherTenantId, activo: true });
+    categoriaModel.findOne
+      .mockReturnValueOnce({
+        exec: jest.fn().mockResolvedValue({
+          _id: categoriaId,
+          tenantId,
+          codigo: 'MED',
+          activo: true,
+        }),
+      })
+      .mockReturnValueOnce({
+        exec: jest.fn().mockResolvedValue({
+          _id: categoriaId,
+          tenantId,
+          codigo: 'MED',
+          activo: true,
+        }),
+      })
+      .mockReturnValueOnce({
+        exec: jest.fn().mockResolvedValue({
+          _id: otherCategoriaId,
+          tenantId: otherTenantId,
+          codigo: 'MED',
+          activo: true,
+        }),
+      });
+
+    const originalImpl = servicioModel.getMockImplementation();
+    let saveCount = 0;
+    servicioModel.mockImplementation((data: any) => {
+      const doc = {
+        ...data,
+        _id: new Types.ObjectId(),
+        save: jest.fn().mockImplementation(async function (this: any) {
+          saveCount += 1;
+          if (saveCount === 2) {
+            throw { code: 11000 };
+          }
+          savedDocs.push(this);
+          return this;
+        }),
+      };
+      return doc;
+    });
+
+    try {
+      await expect(
+        service.createForTenants({
+          nombre: 'Extintor',
+          precioUnitario: 800,
+          categoriaId: categoriaId.toString(),
+          tipo: TipoItem.PRODUCTO,
+          codigo: 'SKU-DUP',
+          tenantIds: [tenantId.toString(), otherTenantId.toString()],
+        }),
+      ).rejects.toMatchObject({
+        constructor: ConflictException,
+        response: {
+          message: expect.stringContaining(String(otherTenantId)),
+        },
+      });
+
+      expect(servicioModel.deleteOne).toHaveBeenCalledTimes(1);
+      expect(servicioModel.deleteOne).toHaveBeenCalledWith({
+        _id: savedDocs[0]._id,
+      });
+    } finally {
+      if (originalImpl) {
+        servicioModel.mockImplementation(originalImpl);
+      }
+    }
+  });
+
+  it('createForTenants rechaza categoría fuente de otro tenant', async () => {
+    (tenantsService.findById as jest.Mock).mockResolvedValue({
+      _id: tenantId,
+      activo: true,
+    });
+    categoriaModel.findOne.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(null),
+    });
+
+    await expect(
+      service.createForTenants({
+        nombre: 'Examen',
+        precioUnitario: 100,
+        categoriaId: otherCategoriaId.toString(),
+      tipo: TipoItem.SERVICIO,
+        tenantIds: [tenantId.toString()],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(servicioModel).not.toHaveBeenCalled();
+  });
+
+  it('createForTenants 400 si un destino no tiene el codigo', async () => {
+    (tenantsService.findById as jest.Mock)
+      .mockResolvedValueOnce({ _id: tenantId, activo: true })
+      .mockResolvedValueOnce({ _id: otherTenantId, activo: true });
+
+    categoriaModel.findOne
+      .mockReturnValueOnce({
+        exec: jest.fn().mockResolvedValue({
+          _id: categoriaId,
+          tenantId,
+          codigo: 'MED',
+          activo: true,
+        }),
+      })
+      .mockReturnValueOnce({
+        exec: jest.fn().mockResolvedValue({
+          _id: categoriaId,
+          tenantId,
+          codigo: 'MED',
+          activo: true,
+        }),
+      })
+      .mockReturnValueOnce({
+        exec: jest.fn().mockResolvedValue(null),
+      });
+
+    await expect(
+      service.createForTenants({
+        nombre: 'Examen',
+        precioUnitario: 100,
+        categoriaId: categoriaId.toString(),
+      tipo: TipoItem.SERVICIO,
+        tenantIds: [tenantId.toString(), otherTenantId.toString()],
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        message: expect.stringContaining(String(otherTenantId)),
+      },
+    });
+
+    expect(servicioModel.deleteOne).toHaveBeenCalledTimes(1);
   });
 
   it('createForTenants rechaza tenant inactivo', async () => {
@@ -450,7 +1073,8 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
       service.createForTenants({
         nombre: 'X',
         precioUnitario: 1,
-        categoria: CategoriaServicio.OTR,
+        categoriaId: categoriaId.toString(),
+      tipo: TipoItem.SERVICIO,
         tenantIds: [tenantId.toString()],
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -463,7 +1087,8 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
       service.createForTenants({
         nombre: 'X',
         precioUnitario: 1,
-        categoria: CategoriaServicio.OTR,
+        categoriaId: categoriaId.toString(),
+      tipo: TipoItem.SERVICIO,
         tenantIds: [new Types.ObjectId().toString()],
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -474,7 +1099,8 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
       service.createForTenants({
         nombre: 'X',
         precioUnitario: 1,
-        categoria: CategoriaServicio.OTR,
+        categoriaId: categoriaId.toString(),
+      tipo: TipoItem.SERVICIO,
         tenantIds: ['not-a-valid-object-id'],
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -485,6 +1111,15 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
     (tenantsService.findById as jest.Mock)
       .mockResolvedValueOnce({ _id: tenantId, activo: true })
       .mockResolvedValueOnce({ _id: otherTenantId, activo: true });
+
+    categoriaModel.findOne.mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: categoriaId,
+        tenantId,
+        codigo: 'MED',
+        activo: true,
+      }),
+    });
 
     const originalImpl = servicioModel.getMockImplementation();
     let saveCount = 0;
@@ -509,7 +1144,8 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
         service.createForTenants({
           nombre: 'Examen',
           precioUnitario: 100,
-          categoria: CategoriaServicio.MED,
+          categoriaId: categoriaId.toString(),
+      tipo: TipoItem.SERVICIO,
           tenantIds: [tenantId.toString(), otherTenantId.toString()],
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
@@ -523,5 +1159,236 @@ describe('ServiciosService (Stories 4.1 / 4.2 / 4.3 / 4.4)', () => {
         servicioModel.mockImplementation(originalImpl);
       }
     }
+  });
+});
+
+jest.mock('sharp', () => {
+  const chain = {
+    rotate: jest.fn().mockReturnThis(),
+    resize: jest.fn().mockReturnThis(),
+    webp: jest.fn().mockReturnThis(),
+    toBuffer: jest.fn().mockResolvedValue(Buffer.from('webp-bytes')),
+  };
+  return {
+    __esModule: true,
+    default: jest.fn(() => chain),
+  };
+});
+
+jest.mock('../common/uploads/disk-upload', () => ({
+  ensureDir: jest.fn(),
+  writeBufferFile: jest.fn(),
+  unlinkQuiet: jest.fn(),
+}));
+
+describe('ServiciosService — imagen producto / Story 8.1', () => {
+  const tenantId = new Types.ObjectId();
+  const productoId = new Types.ObjectId();
+  const servicioId = new Types.ObjectId();
+
+  const servicioModel: any = {
+    find: jest.fn(),
+    findOne: jest.fn(),
+    findOneAndUpdate: jest.fn(),
+    countDocuments: jest.fn(),
+  };
+  const categoriaModel: any = { findOne: jest.fn() };
+  const tenantContext = {
+    getTenantId: jest.fn().mockReturnValue(tenantId),
+  } as unknown as TenantContextService;
+  const tenantsService = { findById: jest.fn() } as unknown as TenantsService;
+
+  const service = new ServiciosService(
+    servicioModel as any,
+    categoriaModel as any,
+    tenantContext,
+    tenantsService,
+  );
+
+  const { writeBufferFile, unlinkQuiet } = jest.requireMock(
+    '../common/uploads/disk-upload',
+  ) as {
+    writeBufferFile: jest.Mock;
+    unlinkQuiet: jest.Mock;
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    tenantContext.getTenantId = jest.fn().mockReturnValue(tenantId);
+  });
+
+  function pngFile(overrides: Partial<Express.Multer.File> = {}): Express.Multer.File {
+    return {
+      fieldname: 'file',
+      originalname: 'p.png',
+      encoding: '7bit',
+      mimetype: 'image/png',
+      size: 100,
+      buffer: Buffer.from('fake-png'),
+      ...overrides,
+    } as Express.Multer.File;
+  }
+
+  it('uploadImagen producto → path canónico + imagenUrl', async () => {
+    servicioModel.findOne.mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: productoId,
+        tenantId,
+        tipo: TipoItem.PRODUCTO,
+      }),
+    });
+    const updated = {
+      _id: productoId,
+      tipo: TipoItem.PRODUCTO,
+      imagenUrl: `/uploads/catalogo/${tenantId}/${productoId}.webp`,
+    };
+    servicioModel.findOneAndUpdate.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(updated),
+    });
+
+    const result = await service.uploadImagen(productoId.toString(), pngFile());
+    expect(writeBufferFile).toHaveBeenCalled();
+    const absPath = (writeBufferFile as jest.Mock).mock.calls[0][0] as string;
+    expect(absPath.replace(/\\/g, '/')).toContain(
+      `uploads/catalogo/${tenantId}/${productoId}.webp`,
+    );
+    expect(result.imagenUrl).toBe(
+      `/uploads/catalogo/${tenantId}/${productoId}.webp`,
+    );
+  });
+
+  it('uploadImagen en tipo=servicio → 400', async () => {
+    servicioModel.findOne.mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: servicioId,
+        tenantId,
+        tipo: TipoItem.SERVICIO,
+      }),
+    });
+    await expect(
+      service.uploadImagen(servicioId.toString(), pngFile()),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(writeBufferFile).not.toHaveBeenCalled();
+  });
+
+  it('uploadImagen rechaza mime inválido / vacío / >1MB', async () => {
+    servicioModel.findOne.mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: productoId,
+        tenantId,
+        tipo: TipoItem.PRODUCTO,
+      }),
+    });
+    await expect(
+      service.uploadImagen(
+        productoId.toString(),
+        pngFile({ mimetype: 'application/pdf' }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.uploadImagen(
+        productoId.toString(),
+        pngFile({ buffer: Buffer.alloc(0), size: 0 }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.uploadImagen(
+        productoId.toString(),
+        pngFile({ size: 1_000_001, buffer: Buffer.alloc(10) }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('clearImagen unset imagenUrl y unlink', async () => {
+    servicioModel.findOne.mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: productoId,
+        tenantId,
+        tipo: TipoItem.PRODUCTO,
+        imagenUrl: `/uploads/catalogo/${tenantId}/${productoId}.webp`,
+      }),
+    });
+    servicioModel.findOneAndUpdate.mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: productoId,
+        tipo: TipoItem.PRODUCTO,
+      }),
+    });
+    await service.clearImagen(productoId.toString());
+    expect(servicioModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: productoId.toString(), tenantId },
+      { $unset: { imagenUrl: 1 } },
+      { new: true },
+    );
+    expect(unlinkQuiet).toHaveBeenCalled();
+  });
+
+  it('clearImagen en tipo=servicio → 400', async () => {
+    servicioModel.findOne.mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: servicioId,
+        tenantId,
+        tipo: TipoItem.SERVICIO,
+        imagenUrl: `/uploads/catalogo/${tenantId}/${servicioId}.webp`,
+      }),
+    });
+    await expect(
+      service.clearImagen(servicioId.toString()),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(servicioModel.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(unlinkQuiet).not.toHaveBeenCalled();
+  });
+
+  it('update tipo→servicio unset imagenUrl + unlink', async () => {
+    const updated = {
+      _id: productoId,
+      tenantId,
+      tipo: TipoItem.SERVICIO,
+    };
+    servicioModel.findOneAndUpdate.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(updated),
+    });
+
+    await service.update(productoId.toString(), { tipo: TipoItem.SERVICIO });
+
+    expect(servicioModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: productoId.toString(), tenantId },
+      {
+        $set: { tipo: TipoItem.SERVICIO, moneda: 'MXN' },
+        $unset: { imagenUrl: 1 },
+      },
+      { new: true },
+    );
+    expect(unlinkQuiet).toHaveBeenCalled();
+    const absPath = (unlinkQuiet as jest.Mock).mock.calls[0][0] as string;
+    expect(absPath.replace(/\\/g, '/')).toContain(
+      `uploads/catalogo/${tenantId}/${productoId}.webp`,
+    );
+  });
+
+  it('findOne / list conservan imagenUrl cuando existe', async () => {
+    const withImg = {
+      _id: productoId,
+      tenantId,
+      tipo: TipoItem.PRODUCTO,
+      imagenUrl: `/uploads/catalogo/${tenantId}/${productoId}.webp`,
+    };
+    servicioModel.findOne.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(withImg),
+    });
+    const one = await service.findOne(productoId.toString());
+    expect((one as any).imagenUrl).toBe(withImg.imagenUrl);
+
+    const execFind = jest.fn().mockResolvedValue([withImg]);
+    const limit = jest.fn().mockReturnValue({ exec: execFind });
+    const skip = jest.fn().mockReturnValue({ limit });
+    const sort = jest.fn().mockReturnValue({ skip });
+    servicioModel.find.mockReturnValue({ sort });
+    servicioModel.countDocuments.mockReturnValue({
+      exec: jest.fn().mockResolvedValue(1),
+    });
+    const list = await service.findAll();
+    expect(list.data).toHaveLength(1);
+    expect((list.data[0] as any).imagenUrl).toBe(withImg.imagenUrl);
   });
 });

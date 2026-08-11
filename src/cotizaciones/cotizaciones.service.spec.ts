@@ -8,8 +8,10 @@ import {
 } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { CotizacionesService } from './cotizaciones.service';
+import { UpdateCotizacionDto } from './dto/update-cotizacion.dto';
 import { TenantSecretsKeyError } from '../tenants/tenant-secrets.crypto';
 import { TenantEmailNotConfiguredError } from '../emails/tenant-email-not-configured.error';
+import { TipoItem } from '../servicios/enums/tipo-item.enum';
 
 describe('CotizacionesService resolveVencimiento (Story 2.4)', () => {
   const tenantConfigService = {
@@ -348,6 +350,330 @@ describe('CotizacionesService.buildItems — overrides snapshot (Story 6.4)', ()
   });
 });
 
+describe('CotizacionesService.buildItems — tipoSnapshot/codigoSnapshot (Story 6.4 tipado SaaS)', () => {
+  const tenantId = new Types.ObjectId();
+  const serviciosService = {
+    findOne: jest.fn(),
+  };
+
+  let service: CotizacionesService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new CotizacionesService(
+      {} as any,
+      {} as any,
+      serviciosService as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
+    );
+  });
+
+  it('setea tipoSnapshot y codigoSnapshot desde el Servicio', async () => {
+    const servicioId = new Types.ObjectId().toString();
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: true,
+      nombre: 'Kit',
+      precioUnitario: 10,
+      tipo: 'producto',
+      codigo: 'SKU-1',
+    });
+    const { items } = await (service as any).buildItems(
+      [{ servicioId, cantidad: 1 }],
+      tenantId,
+    );
+    expect(items[0].tipoSnapshot).toBe('producto');
+    expect(items[0].codigoSnapshot).toBe('SKU-1');
+  });
+
+  it('producto sin código omite codigoSnapshot', async () => {
+    const servicioId = new Types.ObjectId().toString();
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: true,
+      nombre: 'Kit',
+      precioUnitario: 10,
+      tipo: 'producto',
+    });
+    const { items } = await (service as any).buildItems(
+      [{ servicioId, cantidad: 1 }],
+      tenantId,
+    );
+    expect(items[0].tipoSnapshot).toBe('producto');
+    expect(items[0].codigoSnapshot).toBeUndefined();
+  });
+
+  it('legacy sin tipo → tipoSnapshot servicio', async () => {
+    const servicioId = new Types.ObjectId().toString();
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: true,
+      nombre: 'Legacy',
+      precioUnitario: 10,
+    });
+    const { items } = await (service as any).buildItems(
+      [{ servicioId, cantidad: 1 }],
+      tenantId,
+    );
+    expect(items[0].tipoSnapshot).toBe('servicio');
+  });
+
+  it('overrides nombre/precio no cambian tipo/código snapshot', async () => {
+    const servicioId = new Types.ObjectId().toString();
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: true,
+      nombre: 'Cat',
+      precioUnitario: 100,
+      tipo: 'servicio',
+      codigo: 'SRV-9',
+    });
+    const { items } = await (service as any).buildItems(
+      [
+        {
+          servicioId,
+          cantidad: 1,
+          nombre: 'Override',
+          precioUnitario: 1,
+        },
+      ],
+      tenantId,
+    );
+    expect(items[0].nombreServicioSnapshot).toBe('Override');
+    expect(items[0].precioUnitarioSnapshot).toBe(1);
+    expect(items[0].tipoSnapshot).toBe('servicio');
+    expect(items[0].codigoSnapshot).toBe('SRV-9');
+  });
+
+  it('tipoSnapshot/codigoSnapshot espurios del cliente no ganan', async () => {
+    const servicioId = new Types.ObjectId().toString();
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: true,
+      nombre: 'Cat',
+      precioUnitario: 100,
+      tipo: 'servicio',
+      codigo: 'SRV-1',
+    });
+    const { items } = await (service as any).buildItems(
+      [
+        {
+          servicioId,
+          cantidad: 1,
+          tipoSnapshot: 'producto',
+          codigoSnapshot: 'HACK',
+          tipo: 'producto',
+          codigo: 'HACK',
+        } as any,
+      ],
+      tenantId,
+    );
+    expect(items[0].tipoSnapshot).toBe('servicio');
+    expect(items[0].codigoSnapshot).toBe('SRV-1');
+  });
+});
+
+describe('CotizacionesService.buildRepetirItems — tipoSnapshot (Story 6.4 tipado SaaS)', () => {
+  const tenantId = new Types.ObjectId();
+  const servicioId = new Types.ObjectId();
+  const serviciosService = {
+    findOne: jest.fn(),
+  };
+
+  let service: CotizacionesService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new CotizacionesService(
+      {} as any,
+      {} as any,
+      serviciosService as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
+    );
+  });
+
+  it('actualizados toma tipo/código del catálogo vivo', async () => {
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: true,
+      nombre: 'Nuevo nombre',
+      precioUnitario: 50,
+      tipo: 'producto',
+      codigo: 'P-1',
+    });
+    const fuente = {
+      items: [
+        {
+          servicioId,
+          nombreServicioSnapshot: 'Viejo',
+          precioUnitarioSnapshot: 10,
+          cantidad: 1,
+          subtotal: 10,
+          tipoSnapshot: 'servicio',
+          codigoSnapshot: 'OLD',
+        },
+      ],
+    };
+    const { items } = await (service as any).buildRepetirItems(
+      fuente,
+      { modoPrecios: 'actualizados' },
+      tenantId,
+    );
+    expect(items[0].tipoSnapshot).toBe('producto');
+    expect(items[0].codigoSnapshot).toBe('P-1');
+    expect(items[0].nombreServicioSnapshot).toBe('Nuevo nombre');
+  });
+
+  it('originales preserva tipoSnapshot/codigoSnapshot de la línea fuente', async () => {
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: true,
+      nombre: 'Catálogo',
+      precioUnitario: 999,
+      tipo: 'producto',
+      codigo: 'LIVE',
+    });
+    const fuente = {
+      items: [
+        {
+          servicioId,
+          nombreServicioSnapshot: 'Snap',
+          precioUnitarioSnapshot: 10,
+          cantidad: 2,
+          subtotal: 20,
+          tipoSnapshot: 'servicio',
+          codigoSnapshot: 'LINE-CODE',
+        },
+      ],
+    };
+    const { items } = await (service as any).buildRepetirItems(
+      fuente,
+      { modoPrecios: 'originales' },
+      tenantId,
+    );
+    expect(items[0].tipoSnapshot).toBe('servicio');
+    expect(items[0].codigoSnapshot).toBe('LINE-CODE');
+    expect(items[0].precioUnitarioSnapshot).toBe(10);
+  });
+
+  it('originales sin snapshot en línea → one-shot desde Servicio vivo', async () => {
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: false,
+      nombre: 'Catálogo',
+      precioUnitario: 999,
+      tipo: 'producto',
+      codigo: ' LIVE-P ',
+    });
+    const fuente = {
+      items: [
+        {
+          servicioId,
+          nombreServicioSnapshot: 'Snap legacy',
+          precioUnitarioSnapshot: 10,
+          cantidad: 1,
+          subtotal: 10,
+        },
+      ],
+    };
+    const { items } = await (service as any).buildRepetirItems(
+      fuente,
+      { modoPrecios: 'originales' },
+      tenantId,
+    );
+    expect(items[0].tipoSnapshot).toBe('producto');
+    expect(items[0].codigoSnapshot).toBe('LIVE-P');
+    expect(items[0].precioUnitarioSnapshot).toBe(10);
+  });
+});
+
+describe('UpdateCotizacionDto — sin items (Story 6.4 / AD-22)', () => {
+  it('no declara propiedad items (PATCH no reescribe líneas)', () => {
+    const dto = new UpdateCotizacionDto();
+    expect('items' in dto).toBe(false);
+    expect(
+      Object.prototype.hasOwnProperty.call(UpdateCotizacionDto.prototype, 'items'),
+    ).toBe(false);
+  });
+
+  it('update() $set no incluye items aunque el DTO se casteé con extras', async () => {
+    const tenantId = new Types.ObjectId();
+    const cotizacionId = new Types.ObjectId();
+    const existing = {
+      _id: cotizacionId,
+      tenantId,
+      estado: 'vigente',
+      items: [
+        {
+          servicioId: new Types.ObjectId(),
+          tipoSnapshot: 'servicio',
+          codigoSnapshot: 'KEEP',
+          cantidad: 1,
+          precioUnitarioSnapshot: 10,
+          subtotal: 10,
+          nombreServicioSnapshot: 'X',
+        },
+      ],
+    };
+    const ModelCtor: any = {
+      findOneAndUpdate: jest.fn().mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          populate: jest.fn().mockReturnValue({
+            exec: jest.fn().mockResolvedValue({
+              ...existing,
+              emailContacto: 'nuevo@ejemplo.com',
+            }),
+          }),
+        }),
+      }),
+    };
+    const service = new CotizacionesService(
+      ModelCtor,
+      {} as any,
+      {} as any,
+      {} as any,
+      { getTenantId: jest.fn().mockReturnValue(tenantId) } as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
+    );
+    jest.spyOn(service, 'findOne').mockResolvedValue(existing as any);
+
+    await service.update(
+      String(cotizacionId),
+      { emailContacto: 'nuevo@ejemplo.com', items: [{ foo: 1 }] } as any,
+      { sub: 'u1', email: 'a@b.com' },
+    );
+
+    expect(ModelCtor.findOneAndUpdate).toHaveBeenCalledTimes(1);
+    const set = ModelCtor.findOneAndUpdate.mock.calls[0][1].$set;
+    expect(set).toEqual({ emailContacto: 'nuevo@ejemplo.com' });
+    expect(set).not.toHaveProperty('items');
+  });
+});
+
 describe('CotizacionesService.buildPlantillasSnapshot (Story 6.5)', () => {
   const tenantId = new Types.ObjectId();
   const plantillaA = new Types.ObjectId();
@@ -610,6 +936,173 @@ describe('CotizacionesService.createAdminCotizacion — plantillas (Story 6.5)',
     } as any);
 
     expect(lastPersisted.incluirDatosBancarios).toBe(false);
+  });
+});
+
+describe('CotizacionesService.createAdminCotizacion — incluirImagenesPdf (Story 8.2)', () => {
+  const tenantId = new Types.ObjectId();
+  const servicioId = new Types.ObjectId();
+  const year = new Date().getFullYear();
+
+  const serviciosService = { findOne: jest.fn() };
+  const tenantContext = {
+    getTenantId: jest.fn().mockReturnValue(tenantId),
+  };
+  const tenantConfigService = {
+    getForRequest: jest.fn().mockResolvedValue({
+      vigenciaDefaultDias: 30,
+      bancarios: {},
+    }),
+  };
+  const countersService = {
+    nextFolio: jest.fn().mockResolvedValue(`COT-${year}-0082`),
+  };
+
+  let service: CotizacionesService;
+  let ModelCtor: jest.Mock;
+  let lastPersisted: any;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (tenantContext.getTenantId as jest.Mock).mockReturnValue(tenantId);
+    countersService.nextFolio.mockResolvedValue(`COT-${year}-0082`);
+    lastPersisted = null;
+    const savedDoc = {
+      _id: new Types.ObjectId(),
+      folio: `COT-${year}-0082`,
+    };
+    ModelCtor = jest.fn().mockImplementation((data: any) => {
+      lastPersisted = data;
+      return {
+        ...data,
+        save: jest.fn().mockResolvedValue({ ...savedDoc, ...data }),
+      };
+    });
+    service = new CotizacionesService(
+      ModelCtor as any,
+      {} as any,
+      serviciosService as any,
+      {} as any,
+      tenantContext as any,
+      tenantConfigService as any,
+      countersService as any,
+      {
+        findOne: jest.fn(),
+        assertSeccionesValidas: jest.fn((s: unknown) => s),
+        update: jest.fn(),
+      } as any,
+      {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
+    );
+    jest.spyOn(service, 'findOne').mockResolvedValue(savedDoc as any);
+  });
+
+  it('omitido + producto con imagenUrl → incluirImagenesPdf true', async () => {
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: true,
+      nombre: 'Producto',
+      precioUnitario: 100,
+      tipo: TipoItem.PRODUCTO,
+      imagenUrl: `/uploads/catalogo/${tenantId}/${servicioId}.webp`,
+    });
+
+    await service.createAdminCotizacion({
+      items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
+    } as any);
+
+    expect(lastPersisted.incluirImagenesPdf).toBe(true);
+  });
+
+  it('omitido + solo servicio → false', async () => {
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: true,
+      nombre: 'Servicio',
+      precioUnitario: 100,
+      tipo: TipoItem.SERVICIO,
+    });
+
+    await service.createAdminCotizacion({
+      items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
+    } as any);
+
+    expect(lastPersisted.incluirImagenesPdf).toBe(false);
+  });
+
+  it('omitido + producto sin imagenUrl → false', async () => {
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: true,
+      nombre: 'Producto sin imagen',
+      precioUnitario: 100,
+      tipo: TipoItem.PRODUCTO,
+    });
+
+    await service.createAdminCotizacion({
+      items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
+    } as any);
+
+    expect(lastPersisted.incluirImagenesPdf).toBe(false);
+  });
+
+  it('body null → aplica AD-26 (producto con imagen → true)', async () => {
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: true,
+      nombre: 'Producto',
+      precioUnitario: 100,
+      tipo: TipoItem.PRODUCTO,
+      imagenUrl: `/uploads/catalogo/${tenantId}/${servicioId}.webp`,
+    });
+
+    await service.createAdminCotizacion({
+      items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
+      incluirImagenesPdf: null,
+    } as any);
+
+    expect(lastPersisted.incluirImagenesPdf).toBe(true);
+  });
+
+  it('body false con producto+imagen → respeta false', async () => {
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: true,
+      nombre: 'Producto',
+      precioUnitario: 100,
+      tipo: TipoItem.PRODUCTO,
+      imagenUrl: `/uploads/catalogo/${tenantId}/${servicioId}.webp`,
+    });
+
+    await service.createAdminCotizacion({
+      items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
+      incluirImagenesPdf: false,
+    } as any);
+
+    expect(lastPersisted.incluirImagenesPdf).toBe(false);
+  });
+
+  it('body true → true', async () => {
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: true,
+      nombre: 'Servicio',
+      precioUnitario: 100,
+      tipo: TipoItem.SERVICIO,
+    });
+
+    await service.createAdminCotizacion({
+      items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
+      incluirImagenesPdf: true,
+    } as any);
+
+    expect(lastPersisted.incluirImagenesPdf).toBe(true);
   });
 });
 
@@ -2159,6 +2652,7 @@ describe('CotizacionesService repetirCotizacion (Story 6.12)', () => {
     emailsPara: ['ana@acme.com'],
     emailsCc: ['cc@acme.com'],
     incluirDatosBancarios: true,
+    incluirImagenesPdf: true,
     plantillasSnapshot: [
       {
         plantillaId: new Types.ObjectId(),
@@ -2257,6 +2751,7 @@ describe('CotizacionesService repetirCotizacion (Story 6.12)', () => {
     expect(savedPayload.items[0].cantidad).toBe(2);
     expect(savedPayload.emailsPara).toEqual(['ana@acme.com']);
     expect(savedPayload.plantillasSnapshot[0].nombreSnapshot).toBe('Comercial');
+    expect(savedPayload.incluirImagenesPdf).toBe(true);
     expect((created.cotizacion as any).folio).toBe('COT-2026-0099');
     expect(created.originalCancelada).toBe(false);
     expect(created.originalCancelacionError).toBeUndefined();
@@ -2517,6 +3012,7 @@ describe('CotizacionesService previewRepetirCotizacion', () => {
     emailsCc: ['cc@acme.com'],
     incluirDatosBancarios: true,
     incluirDescripciones: true,
+    incluirImagenesPdf: true,
     plantillasSnapshot: [
       {
         plantillaId: new Types.ObjectId(),
@@ -2613,6 +3109,7 @@ describe('CotizacionesService previewRepetirCotizacion', () => {
       precioUnitario: 100,
     });
     expect(preview.incluirDescripciones).toBe(true);
+    expect(preview.incluirImagenesPdf).toBe(true);
   });
 
   it('actualizados: precios del catálogo', async () => {

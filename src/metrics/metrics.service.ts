@@ -8,7 +8,10 @@ import {
 import { FilterMetricsDto } from './dto/filter-metrics.dto';
 import { ClientMetricDto } from './dto/client-metric.dto';
 import { ServiceMetricDto } from './dto/service-metric.dto';
-import { TotalsMetricDto } from './dto/totals-metric.dto';
+import {
+  DesglosePorTipoDto,
+  TotalsMetricDto,
+} from './dto/totals-metric.dto';
 import { TenantContextService } from '../tenants/tenant-context.service';
 
 @Injectable()
@@ -18,6 +21,78 @@ export class MetricsService {
     private cotizacionModel: Model<CotizacionDocument>,
     private tenantContext: TenantContextService,
   ) {}
+
+  /**
+   * AD-22 / Story 7.1 tipado SaaS — bucket canónico desde `items.tipoSnapshot`.
+   * Nunca usar `Servicio.tipo` live. Missing/null/basura → `sin_tipo`.
+   */
+  private tipoSnapshotBucketExpr(
+    fieldPath = '$items.tipoSnapshot',
+  ): Record<string, unknown> {
+    return {
+      $switch: {
+        branches: [
+          { case: { $eq: [fieldPath, 'producto'] }, then: 'producto' },
+          { case: { $eq: [fieldPath, 'servicio'] }, then: 'servicio' },
+        ],
+        default: 'sin_tipo',
+      },
+    };
+  }
+
+  private emptyDesglosePorTipo(): DesglosePorTipoDto {
+    const zero = () => ({ ingresosTotales: 0, vecesContratado: 0 });
+    return { producto: zero(), servicio: zero(), sinTipo: zero() };
+  }
+
+  private mapDesglosePorTipo(
+    rows: Array<{
+      _id?: string;
+      ingresosTotales?: number;
+      vecesContratado?: number;
+    }>,
+  ): DesglosePorTipoDto {
+    const out = this.emptyDesglosePorTipo();
+    for (const r of rows || []) {
+      const bucket =
+        r._id === 'producto'
+          ? out.producto
+          : r._id === 'servicio'
+            ? out.servicio
+            : out.sinTipo;
+      bucket.ingresosTotales = Number(r.ingresosTotales) || 0;
+      bucket.vecesContratado = Number(r.vecesContratado) || 0;
+    }
+    return out;
+  }
+
+  private itemSubtotalSumExpr(): Record<string, unknown> {
+    return {
+      $ifNull: [
+        '$items.subtotal',
+        {
+          $multiply: [
+            { $ifNull: ['$items.precioUnitarioSnapshot', 0] },
+            { $ifNull: ['$items.cantidad', 0] },
+          ],
+        },
+      ],
+    };
+  }
+
+  /**
+   * Story 7.2 — match post-`$unwind` por `items.tipoSnapshot` exacto.
+   * No meter en `buildMatch` (nivel documento). Omitido = todos (null).
+   */
+  private tipoSnapshotLineMatch(
+    filters?: FilterMetricsDto,
+  ): Record<string, unknown> | null {
+    const tipo = filters?.tipo;
+    if (tipo === 'producto' || tipo === 'servicio') {
+      return { 'items.tipoSnapshot': tipo };
+    }
+    return null;
+  }
 
   private async buildMatch(filters?: FilterMetricsDto): Promise<any> {
     const tenantId = this.tenantContext.getTenantId();
@@ -155,6 +230,12 @@ export class MetricsService {
     const pipeline: any[] = [
       { $match: match },
       { $unwind: '$items' },
+    ];
+    const tipoMatch = this.tipoSnapshotLineMatch(filters);
+    if (tipoMatch) {
+      pipeline.push({ $match: tipoMatch });
+    }
+    pipeline.push(
       {
         $group: {
           _id: '$items.servicioId',
@@ -165,6 +246,8 @@ export class MetricsService {
           precioUnitario: {
             $first: '$items.precioUnitarioSnapshot',
           },
+          // AD-22: solo snapshot de línea — no inventar desde lookup catálogo
+          tipoSnapshot: { $first: '$items.tipoSnapshot' },
         },
       },
       {
@@ -188,18 +271,25 @@ export class MetricsService {
             $ifNull: ['$precioUnitario', '$servicio.precioUnitario'],
           },
           vecesContratado: 1,
+          tipoSnapshot: 1,
         },
       },
       { $sort: { vecesContratado: -1 } },
-    ];
+    );
 
     const results = await this.cotizacionModel.aggregate(pipeline).exec();
-    return results.map((item) => ({
-      servicioId: item.servicioId || '',
-      nombreServicio: item.nombreServicio || 'Servicio eliminado',
-      precioUnitario: item.precioUnitario || 0,
-      vecesContratado: item.vecesContratado || 0,
-    }));
+    return results.map((item) => {
+      const raw = item.tipoSnapshot;
+      const tipoSnapshot: 'producto' | 'servicio' | null =
+        raw === 'producto' || raw === 'servicio' ? raw : null;
+      return {
+        servicioId: item.servicioId || '',
+        nombreServicio: item.nombreServicio || 'Servicio eliminado',
+        precioUnitario: item.precioUnitario || 0,
+        vecesContratado: item.vecesContratado || 0,
+        tipoSnapshot,
+      };
+    });
   }
 
   async getTotalsMetrics(filters?: FilterMetricsDto): Promise<TotalsMetricDto> {
@@ -221,6 +311,11 @@ export class MetricsService {
 
     const withMatch = (extra: any = {}) => this.withMatch(match, extra);
     const clienteLookup = this.clienteLookupStage(tenantId);
+    // Story 7.2 — solo pipelines post-unwind de línea; no afecta counts/clients/ingresos doc
+    const tipoLineMatch = this.tipoSnapshotLineMatch(filters);
+    const afterUnwindTipoStages = tipoLineMatch
+      ? [{ $match: tipoLineMatch }]
+      : [];
 
     const [
       mayorSolicitanteResult,
@@ -235,6 +330,7 @@ export class MetricsService {
       rechazadas,
       canceladas,
       ingresos,
+      desglosePorTipoRows,
     ] = await Promise.all([
       this.cotizacionModel
         .aggregate([
@@ -279,6 +375,7 @@ export class MetricsService {
         .aggregate([
           { $match: withMatch({ estado: 'aceptada' }) },
           { $unwind: '$items' },
+          ...afterUnwindTipoStages,
           {
             $group: {
               _id: '$items.servicioId',
@@ -294,21 +391,12 @@ export class MetricsService {
         .aggregate([
           { $match: withMatch({ estado: 'aceptada' }) },
           { $unwind: '$items' },
+          ...afterUnwindTipoStages,
           {
             $group: {
               _id: '$items.servicioId',
               ingresosTotales: {
-                $sum: {
-                  $ifNull: [
-                    '$items.subtotal',
-                    {
-                      $multiply: [
-                        '$items.precioUnitarioSnapshot',
-                        '$items.cantidad',
-                      ],
-                    },
-                  ],
-                },
+                $sum: this.itemSubtotalSumExpr(),
               },
               nombreServicio: { $first: '$items.nombreServicioSnapshot' },
             },
@@ -338,6 +426,23 @@ export class MetricsService {
           { $group: { _id: null, total: { $sum: '$total' } } },
         ])
         .exec(),
+      // FR63 / AD-22 — desglose por línea; sin $lookup de catálogo para tipo
+      this.cotizacionModel
+        .aggregate([
+          { $match: withMatch({ estado: 'aceptada' }) },
+          { $unwind: '$items' },
+          ...afterUnwindTipoStages,
+          {
+            $group: {
+              _id: this.tipoSnapshotBucketExpr(),
+              ingresosTotales: { $sum: this.itemSubtotalSumExpr() },
+              vecesContratado: {
+                $sum: { $ifNull: ['$items.cantidad', 0] },
+              },
+            },
+          },
+        ])
+        .exec(),
     ]);
 
     const emitidas = cotizacionesTotales;
@@ -354,6 +459,7 @@ export class MetricsService {
       cotizacionesCanceladas: canceladas,
       tasaConversion: ofertasValidas > 0 ? aceptadas / ofertasValidas : 0,
       ingresosTotales: ingresos[0]?.total || 0,
+      desglosePorTipo: this.mapDesglosePorTipo(desglosePorTipoRows || []),
     };
 
     if (mayorSolicitanteResult[0]) {

@@ -67,6 +67,10 @@ export class RepetirCotizacionPreviewDto {
   @ApiProperty()
   incluirDescripciones: boolean;
 
+  /** Story 8.2 / AD-26 */
+  @ApiProperty()
+  incluirImagenesPdf: boolean;
+
   @ApiProperty({ type: [RepetirPreviewPlantillaDto] })
   plantillas: RepetirPreviewPlantillaDto[];
 

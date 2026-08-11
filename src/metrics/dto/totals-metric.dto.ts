@@ -1,5 +1,35 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+/** Bucket de desglose tipado (líneas de cotizaciones aceptadas). Story 7.1 SaaS. */
+export class TipoBucketDto {
+  @ApiProperty({
+    description: 'Suma de subtotales de línea (fallback precio×cantidad)',
+    example: 50000,
+  })
+  ingresosTotales: number;
+
+  @ApiProperty({
+    description: 'Suma de cantidades de línea',
+    example: 12,
+  })
+  vecesContratado: number;
+}
+
+/**
+ * Desglose FR63 / AD-22 — solo `items.tipoSnapshot`.
+ * Legacy sin campo → `sinTipo` (no live-on-read de catálogo).
+ */
+export class DesglosePorTipoDto {
+  @ApiProperty({ type: TipoBucketDto })
+  producto: TipoBucketDto;
+
+  @ApiProperty({ type: TipoBucketDto })
+  servicio: TipoBucketDto;
+
+  @ApiProperty({ type: TipoBucketDto })
+  sinTipo: TipoBucketDto;
+}
+
 export class ClienteSolicitanteDto {
   @ApiProperty({
     description: 'ID del cliente',
@@ -160,4 +190,17 @@ export class TotalsMetricDto {
     example: 1500000.0,
   })
   ingresosTotales: number;
+
+  /**
+   * AD-22 / Story 7.1 tipado SaaS — desglose por línea (`items.tipoSnapshot`).
+   * `ingresosTotales` del card sigue siendo suma de `cotizacion.total` (documento);
+   * los buckets suman subtotales de línea (pueden diferir en docs raros).
+   * Legacy sin campo → `sinTipo` (nunca fallback live a catálogo).
+   */
+  @ApiProperty({
+    description:
+      'Desglose de ingresos/cantidades de líneas en aceptadas por tipoSnapshot',
+    type: DesglosePorTipoDto,
+  })
+  desglosePorTipo: DesglosePorTipoDto;
 }

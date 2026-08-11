@@ -1,5 +1,10 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsDateString } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsDateString, IsEnum, IsOptional } from 'class-validator';
+import {
+  TipoItem,
+  TIPO_ITEM_VALUES,
+} from '../../servicios/enums/tipo-item.enum';
 
 export class FilterMetricsDto {
   @ApiPropertyOptional({
@@ -17,4 +22,23 @@ export class FilterMetricsDto {
   @IsOptional()
   @IsDateString()
   fechaHasta?: string;
+
+  /**
+   * Story 7.2 / FR63 — filtro opcional por `items.tipoSnapshot` (post-unwind).
+   * Omitido = todos. No aceptar `todos` ni `sin_tipo` como valor.
+   */
+  @ApiPropertyOptional({
+    description:
+      'Filtrar agregaciones de línea por tipoSnapshot (producto | servicio). Omitido = todos.',
+    enum: TIPO_ITEM_VALUES,
+    example: TipoItem.PRODUCTO,
+  })
+  @IsOptional()
+  @Transform(({ value }) =>
+    value === '' || value === null || value === undefined ? undefined : value,
+  )
+  @IsEnum(TipoItem, {
+    message: `tipo debe ser una de: ${TIPO_ITEM_VALUES.join(', ')}`,
+  })
+  tipo?: TipoItem;
 }

@@ -19,6 +19,7 @@ import {
   ItemCotizacion,
   PlantillaSnapshot,
 } from './schemas/cotizacion.schema';
+import { TipoItem } from '../servicios/enums/tipo-item.enum';
 import { CreateCotizacionDto } from './dto/create-cotizacion.dto';
 import {
   CreateCotizacionAdminDto,
@@ -86,6 +87,69 @@ export class CotizacionesService {
     return this.countersService.nextFolio(tenantId);
   }
 
+  /**
+   * AD-22 / Story 6.4 — snapshots tipados solo desde el `Servicio` de catálogo
+   * (escritos en servidor; nunca del DTO cliente).
+   * Legacy sin `tipo` → `servicio`. `codigo` vacío → omitir campo.
+   */
+  private applyTipoCodigoSnapshotsFromServicio(
+    item: Record<string, unknown>,
+    servicio: { tipo?: string | null; codigo?: string | null },
+  ): void {
+    item.tipoSnapshot =
+      servicio.tipo === TipoItem.PRODUCTO
+        ? TipoItem.PRODUCTO
+        : TipoItem.SERVICIO;
+    const codigo =
+      typeof servicio.codigo === 'string' ? servicio.codigo.trim() : '';
+    if (codigo) {
+      item.codigoSnapshot = codigo;
+    } else {
+      delete item.codigoSnapshot;
+    }
+  }
+
+  /** Rama `originales` de repetir: preferir snapshot de línea; fallback one-shot al catálogo. */
+  private applyTipoCodigoSnapshotsForOriginales(
+    item: Record<string, unknown>,
+    rawLine: {
+      tipoSnapshot?: string | null;
+      codigoSnapshot?: string | null;
+    },
+    servicio: { tipo?: string | null; codigo?: string | null },
+  ): void {
+    if (
+      rawLine.tipoSnapshot === TipoItem.PRODUCTO ||
+      rawLine.tipoSnapshot === TipoItem.SERVICIO
+    ) {
+      item.tipoSnapshot = rawLine.tipoSnapshot;
+      const codigoLine =
+        typeof rawLine.codigoSnapshot === 'string'
+          ? rawLine.codigoSnapshot.trim()
+          : '';
+      if (codigoLine) {
+        item.codigoSnapshot = codigoLine;
+      } else {
+        delete item.codigoSnapshot;
+      }
+      return;
+    }
+    this.applyTipoCodigoSnapshotsFromServicio(item, servicio);
+  }
+
+  /**
+   * Story 8.2 / AD-26 — default al omitir el flag en create.
+   * Si el cliente envía boolean → se respeta; si no → true iff producto con imagenUrl.
+   */
+  private resolveIncluirImagenesPdf(
+    dtoFlag: boolean | undefined | null,
+    hasProductoConImagen: boolean,
+  ): boolean {
+    // Solo boolean estricto cuenta como elección del cliente (null/omitido → AD-26).
+    if (typeof dtoFlag === 'boolean') return dtoFlag;
+    return hasProductoConImagen;
+  }
+
   private async buildItems(
     itemsDto: {
       servicioId: string;
@@ -95,9 +159,14 @@ export class CotizacionesService {
       precioUnitario?: number;
     }[],
     tenantId: Types.ObjectId,
-  ): Promise<{ items: ItemCotizacion[]; total: number }> {
+  ): Promise<{
+    items: ItemCotizacion[];
+    total: number;
+    hasProductoConImagen: boolean;
+  }> {
     const items: ItemCotizacion[] = [];
     let total = 0;
+    let hasProductoConImagen = false;
     for (const itemDto of itemsDto) {
       const servicio = await this.serviciosService.findOne(itemDto.servicioId);
       const servicioDoc = servicio as any;
@@ -113,6 +182,14 @@ export class CotizacionesService {
         throw new BadRequestException(
           'No se puede crear una cotización con un servicio inactivo',
         );
+      }
+
+      if (
+        servicioDoc.tipo === TipoItem.PRODUCTO &&
+        typeof servicioDoc.imagenUrl === 'string' &&
+        servicioDoc.imagenUrl.trim()
+      ) {
+        hasProductoConImagen = true;
       }
 
       const nombreOverride = itemDto.nombre?.trim();
@@ -146,9 +223,11 @@ export class CotizacionesService {
         item.descripcionServicioSnapshot = servicio.descripcion;
       }
 
+      this.applyTipoCodigoSnapshotsFromServicio(item, servicioDoc);
+
       items.push(item);
     }
-    return { items, total };
+    return { items, total, hasProductoConImagen };
   }
 
   /**
@@ -387,7 +466,10 @@ export class CotizacionesService {
       );
     }
 
-    const { items, total } = await this.buildItems(dto.items, tenantId);
+    const { items, total, hasProductoConImagen } = await this.buildItems(
+      dto.items,
+      tenantId,
+    );
     const plantillasSnapshot = await this.buildPlantillasSnapshot(
       dto.plantillas,
       tenantId,
@@ -431,6 +513,10 @@ export class CotizacionesService {
       sinVigencia,
       incluirDatosBancarios,
       incluirDescripciones: dto.incluirDescripciones === true,
+      incluirImagenesPdf: this.resolveIncluirImagenesPdf(
+        dto.incluirImagenesPdf,
+        hasProductoConImagen,
+      ),
       plantillasSnapshot,
       emailsPara,
       emailsCc,
@@ -613,6 +699,7 @@ export class CotizacionesService {
         if (reemplazo.descripcion) {
           item.descripcionServicioSnapshot = reemplazo.descripcion;
         }
+        this.applyTipoCodigoSnapshotsFromServicio(item, reemplazo);
         items.push(item);
         continue;
       }
@@ -672,6 +759,7 @@ export class CotizacionesService {
         if (typeof desc === 'string' && desc.trim()) {
           item.descripcionServicioSnapshot = desc.trim();
         }
+        this.applyTipoCodigoSnapshotsForOriginales(item, raw, servicio);
         items.push(item);
       } else {
         const precio = Number(servicio.precioUnitario);
@@ -691,6 +779,7 @@ export class CotizacionesService {
         if (servicio.descripcion) {
           item.descripcionServicioSnapshot = servicio.descripcion;
         }
+        this.applyTipoCodigoSnapshotsFromServicio(item, servicio);
         items.push(item);
       }
     }
@@ -788,6 +877,7 @@ export class CotizacionesService {
       sinVigencia,
       incluirDatosBancarios: incluirDatosBancarios ?? false,
       incluirDescripciones: fuente.incluirDescripciones === true,
+      incluirImagenesPdf: fuente.incluirImagenesPdf === true,
       plantillas: plantillasSnapshot.map((p) => ({
         plantillaId: this.refId(p.plantillaId) || String(p.plantillaId),
         nombre: p.nombreSnapshot,
@@ -920,6 +1010,7 @@ export class CotizacionesService {
       sinVigencia,
       incluirDatosBancarios,
       incluirDescripciones: fuente.incluirDescripciones === true,
+      incluirImagenesPdf: fuente.incluirImagenesPdf === true,
       plantillasSnapshot,
       emailsPara,
       emailsCc,
@@ -1405,6 +1496,8 @@ export class CotizacionesService {
     } = updateCotizacionDto;
 
     const updateData: Record<string, unknown> = { ...restDto };
+    // AD-22 / Story 6.4 — UpdateCotizacionDto no declara `items`; no reescribir líneas/snapshots.
+    delete updateData.items;
     let fechaVenc: Date | undefined;
     if (fechaVencDto) {
       fechaVenc = new Date(fechaVencDto);

@@ -24,6 +24,7 @@ import { AMES_ROLES } from '../auth/enums/roles.enum';
 import { Roles as RolesDecorator } from '../auth/decorators/roles.decorator';
 import { TenantContextGuard } from '../tenants/tenant-context.guard';
 import { TenantContextInterceptor } from '../tenants/tenant-context.interceptor';
+import { TIPO_ITEM_VALUES } from '../servicios/enums/tipo-item.enum';
 
 @ApiTags('metrics')
 @Controller('metrics')
@@ -58,6 +59,13 @@ export class MetricsController {
     type: String,
     description: 'Fecha hasta (ISO string)',
   })
+  @ApiQuery({
+    name: 'tipo',
+    required: false,
+    enum: TIPO_ITEM_VALUES,
+    description:
+      'Ignorado en clients (nivel cotización). Presente por contrato DTO compartido.',
+  })
   @ApiResponse({
     status: 200,
     description: 'Métricas de clientes obtenidas exitosamente',
@@ -73,7 +81,7 @@ export class MetricsController {
   @ApiOperation({
     summary: 'Obtener métricas de servicios',
     description:
-      'Endpoint administrativo de solo lectura que devuelve estadísticas de servicios incluyendo cuántas veces se ha solicitado cada servicio. Permite filtrar por rango de fechas.',
+      'Endpoint administrativo de solo lectura que devuelve estadísticas de servicios incluyendo cuántas veces se ha solicitado cada servicio. Permite filtrar por rango de fechas y por tipoSnapshot de línea (producto|servicio).',
   })
   @ApiQuery({
     name: 'fechaDesde',
@@ -86,6 +94,13 @@ export class MetricsController {
     required: false,
     type: String,
     description: 'Fecha hasta (ISO string)',
+  })
+  @ApiQuery({
+    name: 'tipo',
+    required: false,
+    enum: TIPO_ITEM_VALUES,
+    description:
+      'Filtrar líneas por items.tipoSnapshot (producto|servicio). Omitido = todos.',
   })
   @ApiResponse({
     status: 200,
@@ -102,7 +117,7 @@ export class MetricsController {
   @ApiOperation({
     summary: 'Obtener métricas totales agregadas',
     description:
-      'Endpoint administrativo de solo lectura que devuelve métricas agregadas incluyendo mayor solicitante, servicio más solicitado y conteos de cotizaciones por periodo (hoy, mes, año). Permite filtrar por rango de fechas.',
+      'Endpoint administrativo de solo lectura que devuelve métricas agregadas incluyendo mayor solicitante, servicio más solicitado y conteos de cotizaciones por periodo (hoy, mes, año). Permite filtrar por rango de fechas; tipo restringe solo agregaciones de línea (tops/desglose).',
   })
   @ApiQuery({
     name: 'fechaDesde',
@@ -115,6 +130,13 @@ export class MetricsController {
     required: false,
     type: String,
     description: 'Fecha hasta (ISO string)',
+  })
+  @ApiQuery({
+    name: 'tipo',
+    required: false,
+    enum: TIPO_ITEM_VALUES,
+    description:
+      'Filtrar tops/desglose por items.tipoSnapshot. No altera emitidas/tasa/ingresos documento. Omitido = todos.',
   })
   @ApiResponse({
     status: 200,

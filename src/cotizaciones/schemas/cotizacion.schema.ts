@@ -1,6 +1,10 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import type { SeccionPlantillaV1 } from '../../plantillas/schemas/plantilla.schema';
+import {
+  TipoItem,
+  TIPO_ITEM_VALUES,
+} from '../../servicios/enums/tipo-item.enum';
 
 export type CotizacionDocument = Cotizacion & Document;
 
@@ -22,6 +26,14 @@ export class ItemCotizacion {
 
   @Prop({ required: true, min: 0 })
   subtotal: number;
+
+  /** AD-22 / Story 6.4 — escrito solo por módulo cotizaciones desde Servicio. */
+  @Prop({ required: true, enum: TIPO_ITEM_VALUES })
+  tipoSnapshot: TipoItem;
+
+  /** AD-22 — omitir si el catálogo no tiene código (no persistir ""). */
+  @Prop()
+  codigoSnapshot?: string;
 }
 
 /** Nota interna visible solo para usuarios AMES (no PDF / no vista pública). */
@@ -185,6 +197,13 @@ export class Cotizacion {
   /** Si false, el PDF omite la columna de descripción (default false). */
   @Prop({ default: false })
   incluirDescripciones?: boolean;
+
+  /**
+   * Story 8.2 / AD-26 — si true, el PDF puede incluir imágenes de producto (render en 8.3).
+   * Default mongoose false; al create omitido → default AD-26 en service.
+   */
+  @Prop({ default: false })
+  incluirImagenesPdf?: boolean;
 
   /** Plantillas aplicadas (deep copy). Vacío/omitido = sin páginas de plantilla. */
   @Prop({ type: [Object], default: [] })

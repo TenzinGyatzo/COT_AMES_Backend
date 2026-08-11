@@ -25,4 +25,14 @@ export class ServiceMetricDto {
     example: 15,
   })
   vecesContratado: number;
+
+  /** AD-22 / Story 7.1 tipado — desde `items.tipoSnapshot` ($first); null = legacy sin tipo. */
+  @ApiProperty({
+    description:
+      'tipoSnapshot de línea ($first); null si legacy / ausente (no se lee Servicio.tipo)',
+    enum: ['producto', 'servicio'],
+    nullable: true,
+    required: false,
+  })
+  tipoSnapshot?: 'producto' | 'servicio' | null;
 }

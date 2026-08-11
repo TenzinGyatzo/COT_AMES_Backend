@@ -1,6 +1,10 @@
 /// <reference types="jest" />
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
 import { Types } from 'mongoose';
+import { FilterMetricsDto } from './dto/filter-metrics.dto';
 import { MetricsService } from './metrics.service';
+import { TipoItem } from '../servicios/enums/tipo-item.enum';
 
 describe('MetricsService (Story 7.1 / 7.2)', () => {
   const tenantA = new Types.ObjectId();
@@ -243,5 +247,315 @@ describe('MetricsService (Story 7.1 / 7.2)', () => {
       expect(serialized).not.toMatch(/creadoPor/);
       expect(serialized).not.toMatch(/"userId"/);
     });
+  });
+});
+
+function isDesglosePorTipoPipeline(pipeline: any[]): boolean {
+  return pipeline.some(
+    (s) =>
+      s.$group &&
+      s.$group._id?.$switch &&
+      JSON.stringify(s.$group._id).includes('items.tipoSnapshot'),
+  );
+}
+
+describe('MetricsService — tipoSnapshot SaaS / Story 7.1 tipado', () => {
+  const tenantA = new Types.ObjectId();
+  let aggregatePipelines: any[];
+  let ModelCtor: any;
+  let service: MetricsService;
+
+  beforeEach(() => {
+    aggregatePipelines = [];
+    ModelCtor = {
+      countDocuments: jest.fn().mockResolvedValue(0),
+      aggregate: jest.fn().mockImplementation((pipeline: any[]) => {
+        aggregatePipelines.push(pipeline);
+        let rows: any[] = [];
+        if (isDesglosePorTipoPipeline(pipeline)) {
+          rows = [
+            { _id: 'producto', ingresosTotales: 100, vecesContratado: 2 },
+            { _id: 'servicio', ingresosTotales: 50, vecesContratado: 1 },
+            { _id: 'sin_tipo', ingresosTotales: 25, vecesContratado: 3 },
+          ];
+        }
+        return { exec: jest.fn().mockResolvedValue(rows) };
+      }),
+    };
+    service = new MetricsService(ModelCtor as any, {
+      getTenantId: jest.fn().mockReturnValue(tenantA),
+    } as any);
+  });
+
+  it('pipeline de desglose agrupa por items.tipoSnapshot ($switch) sin $lookup servicios', async () => {
+    await service.getTotalsMetrics();
+    const desglose = aggregatePipelines.find(isDesglosePorTipoPipeline);
+    expect(desglose).toBeDefined();
+    const matchStage = desglose.find((s: any) => s.$match?.estado === 'aceptada');
+    expect(matchStage).toBeDefined();
+    const serialized = JSON.stringify(desglose);
+    expect(serialized).toContain('items.tipoSnapshot');
+    expect(serialized).toContain('producto');
+    expect(serialized).toContain('servicio');
+    expect(serialized).toContain('sin_tipo');
+    expect(desglose.some((s: any) => s.$lookup)).toBe(false);
+    expect(serialized).not.toMatch(/Servicio\.tipo|"\$servicio\.tipo"/);
+  });
+
+  it('mezcla producto + servicio + legacy → tres buckets', async () => {
+    const totals = await service.getTotalsMetrics();
+    expect(totals.desglosePorTipo.producto).toEqual({
+      ingresosTotales: 100,
+      vecesContratado: 2,
+    });
+    expect(totals.desglosePorTipo.servicio).toEqual({
+      ingresosTotales: 50,
+      vecesContratado: 1,
+    });
+    expect(totals.desglosePorTipo.sinTipo).toEqual({
+      ingresosTotales: 25,
+      vecesContratado: 3,
+    });
+  });
+
+  it('legacy sin filas de bucket → ceros (sinTipo incluido)', async () => {
+    ModelCtor.aggregate.mockImplementation((pipeline: any[]) => {
+      aggregatePipelines.push(pipeline);
+      return { exec: jest.fn().mockResolvedValue([]) };
+    });
+    const totals = await service.getTotalsMetrics();
+    expect(totals.desglosePorTipo).toEqual({
+      producto: { ingresosTotales: 0, vecesContratado: 0 },
+      servicio: { ingresosTotales: 0, vecesContratado: 0 },
+      sinTipo: { ingresosTotales: 0, vecesContratado: 0 },
+    });
+  });
+
+  it('solo legacy (sin_tipo) cuenta en sinTipo', async () => {
+    ModelCtor.aggregate.mockImplementation((pipeline: any[]) => {
+      aggregatePipelines.push(pipeline);
+      const rows = isDesglosePorTipoPipeline(pipeline)
+        ? [{ _id: 'sin_tipo', ingresosTotales: 40, vecesContratado: 4 }]
+        : [];
+      return { exec: jest.fn().mockResolvedValue(rows) };
+    });
+    const totals = await service.getTotalsMetrics();
+    expect(totals.desglosePorTipo.sinTipo.ingresosTotales).toBe(40);
+    expect(totals.desglosePorTipo.sinTipo.vecesContratado).toBe(4);
+    expect(totals.desglosePorTipo.producto.ingresosTotales).toBe(0);
+    expect(totals.desglosePorTipo.servicio.ingresosTotales).toBe(0);
+  });
+
+  it('getServicesMetrics expone tipoSnapshot desde $first de línea (null si legacy)', async () => {
+    ModelCtor.aggregate.mockImplementation((pipeline: any[]) => {
+      aggregatePipelines.push(pipeline);
+      return {
+        exec: jest.fn().mockResolvedValue([
+          {
+            servicioId: 's1',
+            nombreServicio: 'Kit',
+            precioUnitario: 10,
+            vecesContratado: 2,
+            tipoSnapshot: 'producto',
+          },
+          {
+            servicioId: 's2',
+            nombreServicio: 'Legacy',
+            precioUnitario: 5,
+            vecesContratado: 1,
+            tipoSnapshot: undefined,
+          },
+        ]),
+      };
+    });
+    const rows = await service.getServicesMetrics();
+    expect(rows[0].tipoSnapshot).toBe('producto');
+    expect(rows[1].tipoSnapshot).toBeNull();
+
+    const pipeline = aggregatePipelines[0];
+    const group = pipeline.find((s: any) => s.$group?._id === '$items.servicioId');
+    expect(group.$group.tipoSnapshot).toEqual({ $first: '$items.tipoSnapshot' });
+    // lookup nombre OK; no proyectar servicio.tipo
+    const project = pipeline.find((s: any) => s.$project?.servicioId);
+    expect(JSON.stringify(project)).not.toContain('servicio.tipo');
+  });
+});
+
+function hasTipoSnapshotLineMatch(
+  pipeline: any[],
+  tipo: 'producto' | 'servicio',
+): boolean {
+  const unwindIdx = pipeline.findIndex((s) => s.$unwind === '$items');
+  if (unwindIdx < 0) return false;
+  return pipeline
+    .slice(unwindIdx + 1)
+    .some((s) => s.$match?.['items.tipoSnapshot'] === tipo);
+}
+
+function isServicesMetricsPipeline(pipeline: any[]): boolean {
+  return pipeline.some(
+    (s) => s.$group && s.$group._id === '$items.servicioId' && s.$group.vecesContratado,
+  );
+}
+
+function isTopSolicitadoPipeline(pipeline: any[]): boolean {
+  return pipeline.some(
+    (s) => s.$group && s.$group.vecesSolicitado && s.$group._id === '$items.servicioId',
+  );
+}
+
+function isTopRentablePipeline(pipeline: any[]): boolean {
+  return pipeline.some(
+    (s) =>
+      s.$group &&
+      s.$group.ingresosTotales &&
+      s.$group._id === '$items.servicioId' &&
+      !s.$group.vecesSolicitado,
+  );
+}
+
+describe('FilterMetricsDto — Story 7.2', () => {
+  it('acepta producto|servicio y omite vacío', () => {
+    const producto = plainToInstance(FilterMetricsDto, { tipo: TipoItem.PRODUCTO });
+    const servicio = plainToInstance(FilterMetricsDto, { tipo: TipoItem.SERVICIO });
+    const vacio = plainToInstance(FilterMetricsDto, { tipo: '' });
+    expect(validateSync(producto)).toHaveLength(0);
+    expect(validateSync(servicio)).toHaveLength(0);
+    expect(vacio.tipo).toBeUndefined();
+    expect(validateSync(vacio)).toHaveLength(0);
+  });
+
+  it('rechaza tipo=todos y tipo=sin_tipo', () => {
+    const todos = plainToInstance(FilterMetricsDto, { tipo: 'todos' });
+    const sinTipo = plainToInstance(FilterMetricsDto, { tipo: 'sin_tipo' });
+    expect(validateSync(todos).some((e) => e.property === 'tipo')).toBe(true);
+    expect(validateSync(sinTipo).some((e) => e.property === 'tipo')).toBe(true);
+  });
+});
+
+function isIngresosDocumentoPipeline(pipeline: any[]): boolean {
+  return pipeline.some(
+    (s) =>
+      s.$group &&
+      s.$group._id === null &&
+      s.$group.total?.$sum === '$total',
+  );
+}
+
+function postUnwindTipoMatch(pipeline: any[]): Record<string, unknown> | undefined {
+  const unwindIdx = pipeline.findIndex((s) => s.$unwind === '$items');
+  if (unwindIdx < 0) return undefined;
+  const match = pipeline
+    .slice(unwindIdx + 1)
+    .find((s) => s.$match && 'items.tipoSnapshot' in s.$match);
+  return match?.$match;
+}
+
+describe('MetricsService — filtro tipo SaaS / Story 7.2', () => {
+  const tenantA = new Types.ObjectId();
+  let aggregatePipelines: any[];
+  let countCalls: any[];
+  let ModelCtor: any;
+  let service: MetricsService;
+
+  beforeEach(() => {
+    aggregatePipelines = [];
+    countCalls = [];
+    ModelCtor = {
+      countDocuments: jest.fn().mockImplementation(async (filter: any) => {
+        countCalls.push(filter);
+        return 0;
+      }),
+      aggregate: jest.fn().mockImplementation((pipeline: any[]) => {
+        aggregatePipelines.push(pipeline);
+        return { exec: jest.fn().mockResolvedValue([]) };
+      }),
+    };
+    service = new MetricsService(ModelCtor as any, {
+      getTenantId: jest.fn().mockReturnValue(tenantA),
+    } as any);
+  });
+
+  it('tipo=producto → services/desglose/tops match items.tipoSnapshot post-unwind', async () => {
+    await service.getServicesMetrics({ tipo: TipoItem.PRODUCTO });
+    await service.getTotalsMetrics({ tipo: TipoItem.PRODUCTO });
+
+    const services = aggregatePipelines.find(isServicesMetricsPipeline);
+    expect(services).toBeDefined();
+    expect(hasTipoSnapshotLineMatch(services, 'producto')).toBe(true);
+    expect(JSON.stringify(services)).not.toMatch(/Servicio\.tipo|"\$servicio\.tipo"/);
+
+    const desglose = aggregatePipelines.find(isDesglosePorTipoPipeline);
+    expect(desglose).toBeDefined();
+    expect(hasTipoSnapshotLineMatch(desglose, 'producto')).toBe(true);
+    expect(desglose.some((s: any) => s.$lookup)).toBe(false);
+
+    const topSol = aggregatePipelines.find(isTopSolicitadoPipeline);
+    const topRen = aggregatePipelines.find(isTopRentablePipeline);
+    expect(hasTipoSnapshotLineMatch(topSol, 'producto')).toBe(true);
+    expect(hasTipoSnapshotLineMatch(topRen, 'producto')).toBe(true);
+  });
+
+  it('sin tipo → pipelines de línea sin $match items.tipoSnapshot', async () => {
+    await service.getServicesMetrics();
+    await service.getTotalsMetrics();
+
+    const services = aggregatePipelines.find(isServicesMetricsPipeline);
+    const desglose = aggregatePipelines.find(isDesglosePorTipoPipeline);
+    const topSol = aggregatePipelines.find(isTopSolicitadoPipeline);
+    expect(hasTipoSnapshotLineMatch(services, 'producto')).toBe(false);
+    expect(hasTipoSnapshotLineMatch(services, 'servicio')).toBe(false);
+    expect(hasTipoSnapshotLineMatch(desglose, 'producto')).toBe(false);
+    expect(hasTipoSnapshotLineMatch(topSol, 'servicio')).toBe(false);
+  });
+
+  it('getClientsMetrics ignora tipo (sin match tipoSnapshot)', async () => {
+    await service.getClientsMetrics({ tipo: TipoItem.PRODUCTO });
+    const clients = aggregatePipelines[0];
+    expect(clients).toBeDefined();
+    const serialized = JSON.stringify(clients);
+    expect(serialized).not.toContain('items.tipoSnapshot');
+    expect(serialized).not.toContain('tipoSnapshot');
+  });
+
+  it('tipo=servicio → match exacto servicio; sin lookup para filtrar', async () => {
+    await service.getTotalsMetrics({ tipo: TipoItem.SERVICIO });
+    const desglose = aggregatePipelines.find(isDesglosePorTipoPipeline);
+    expect(hasTipoSnapshotLineMatch(desglose, 'servicio')).toBe(true);
+    expect(hasTipoSnapshotLineMatch(desglose, 'producto')).toBe(false);
+    expect(JSON.stringify(desglose)).not.toMatch(/\$lookup|Servicio\.tipo/);
+  });
+
+  it('AC3: match exacto excluye legacy/sin_tipo (solo equality string)', async () => {
+    await service.getServicesMetrics({ tipo: TipoItem.PRODUCTO });
+    await service.getTotalsMetrics({ tipo: TipoItem.PRODUCTO });
+
+    for (const pipeline of [
+      aggregatePipelines.find(isServicesMetricsPipeline),
+      aggregatePipelines.find(isDesglosePorTipoPipeline),
+      aggregatePipelines.find(isTopSolicitadoPipeline),
+      aggregatePipelines.find(isTopRentablePipeline),
+    ]) {
+      const m = postUnwindTipoMatch(pipeline);
+      expect(m).toEqual({ 'items.tipoSnapshot': 'producto' });
+      expect(m).not.toHaveProperty('$or');
+      expect(m).not.toHaveProperty('$in');
+    }
+  });
+
+  it('AC2: con tipo activo, counts e ingresos documento no usan tipoSnapshot', async () => {
+    await service.getTotalsMetrics({ tipo: TipoItem.PRODUCTO });
+
+    for (const filter of countCalls) {
+      expect(JSON.stringify(filter)).not.toContain('tipoSnapshot');
+    }
+
+    const ingresos = aggregatePipelines.find(isIngresosDocumentoPipeline);
+    expect(ingresos).toBeDefined();
+    expect(JSON.stringify(ingresos)).not.toContain('tipoSnapshot');
+    expect(
+      ingresos.some((s: any) => s.$group?.total?.$sum === '$total'),
+    ).toBe(true);
+    expect(hasTipoSnapshotLineMatch(ingresos, 'producto')).toBe(false);
   });
 });

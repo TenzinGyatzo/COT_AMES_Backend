@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Post,
@@ -9,6 +10,8 @@ import {
   Delete,
   HttpCode,
   HttpStatus,
+  UploadedFile,
+  UseFilters,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -20,7 +23,11 @@ import {
   ApiQuery,
   ApiBearerAuth,
   ApiHeader,
+  ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { ServiciosService } from './servicios.service';
 import { CreateServicioDto } from './dto/create-servicio.dto';
 import { CreateServicioMultiDto } from './dto/create-servicio-multi.dto';
@@ -34,8 +41,9 @@ import { AMES_ROLES } from '../auth/enums/roles.enum';
 import { Roles as RolesDecorator } from '../auth/decorators/roles.decorator';
 import { TenantContextGuard } from '../tenants/tenant-context.guard';
 import { TenantContextInterceptor } from '../tenants/tenant-context.interceptor';
-import { CATEGORIA_SERVICIO_VALUES } from './enums/categoria-servicio.enum';
+import { MulterBadRequestFilter } from '../common/uploads/multer-bad-request.filter';
 import { SERVICIO_ORDEN_VALUES } from './enums/servicio-orden.enum';
+import { TIPO_ITEM_VALUES } from './enums/tipo-item.enum';
 
 @ApiTags('servicios')
 @Controller('servicios')
@@ -82,13 +90,20 @@ export class ServiciosController {
 
   @Get()
   @ApiOperation({
-    summary: 'Listar servicios con búsqueda, categoría y paginación',
+    summary: 'Listar servicios con búsqueda, categoría, tipo y paginación',
   })
   @ApiQuery({ name: 'nombre', required: false, type: String })
   @ApiQuery({
-    name: 'categoria',
+    name: 'categoriaId',
     required: false,
-    enum: CATEGORIA_SERVICIO_VALUES,
+    type: String,
+    description: 'ObjectId de categoría del tenant',
+  })
+  @ApiQuery({
+    name: 'tipo',
+    required: false,
+    enum: TIPO_ITEM_VALUES,
+    description: 'Filtrar por tipo: servicio | producto (Story 6.1)',
   })
   @ApiQuery({ name: 'activo', required: false, type: Boolean })
   @ApiQuery({ name: 'page', required: false, type: Number })
@@ -109,6 +124,58 @@ export class ServiciosController {
     @Query() filters?: FilterServicioDto,
   ): Promise<PaginatedServiciosResponseDto> {
     return this.serviciosService.findAll(filters);
+  }
+
+  @Post(':id/imagen')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Subir o reemplazar imagen de producto',
+    description:
+      'Solo tipo=producto. PNG/JPEG/WebP ≤1MB → sharp WebP (lado ≤1200). AD-23 / Story 8.1.',
+  })
+  @ApiParam({ name: 'id', description: 'ID del ítem' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Imagen guardada; ítem con imagenUrl' })
+  @ApiResponse({ status: 400, description: 'Archivo inválido / no es producto' })
+  @ApiResponse({ status: 404, description: 'Ítem no encontrado' })
+  @UseFilters(MulterBadRequestFilter)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 1_000_000 },
+    }),
+  )
+  uploadImagen(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Archivo de imagen requerido');
+    }
+    return this.serviciosService.uploadImagen(id, file);
+  }
+
+  @Delete(':id/imagen')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Eliminar imagen de producto',
+    description: 'Solo tipo=producto. Unset imagenUrl + borra archivo. Story 8.1.',
+  })
+  @ApiParam({ name: 'id', description: 'ID del ítem' })
+  @ApiResponse({ status: 200, description: 'Imagen eliminada' })
+  @ApiResponse({ status: 400, description: 'No es producto' })
+  @ApiResponse({ status: 404, description: 'Ítem no encontrado' })
+  clearImagen(@Param('id') id: string) {
+    return this.serviciosService.clearImagen(id);
   }
 
   @Get(':id')

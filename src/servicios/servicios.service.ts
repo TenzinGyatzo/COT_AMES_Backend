@@ -3,12 +3,17 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
-  OnModuleInit,
-  Logger,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { join } from 'path';
+import sharp from 'sharp';
 import { Servicio, ServicioDocument } from './schemas/servicio.schema';
+import {
+  CategoriaServicioEntity,
+  CategoriaServicioDocument,
+} from './schemas/categoria-servicio.schema';
 import { CreateServicioDto } from './dto/create-servicio.dto';
 import { CreateServicioMultiDto } from './dto/create-servicio-multi.dto';
 import { UpdateServicioDto } from './dto/update-servicio.dto';
@@ -20,21 +25,59 @@ import {
   assertStrictObjectIdOrNotFound,
   isStrictObjectId,
 } from '../common/strict-object-id';
-import { CategoriaServicio } from './enums/categoria-servicio.enum';
+import {
+  unlinkQuiet,
+  writeBufferFile,
+} from '../common/uploads/disk-upload';
 import { ServicioOrden } from './enums/servicio-orden.enum';
+import { TipoItem } from './enums/tipo-item.enum';
+
+const MAX_IMAGEN_BYTES = 1_000_000;
+const ALLOWED_IMAGEN_MIME = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
+]);
 
 @Injectable()
-export class ServiciosService implements OnModuleInit {
-  private readonly logger = new Logger(ServiciosService.name);
-
+export class ServiciosService {
   constructor(
     @InjectModel(Servicio.name) private servicioModel: Model<ServicioDocument>,
+    @InjectModel(CategoriaServicioEntity.name)
+    private categoriaModel: Model<CategoriaServicioDocument>,
     private tenantContext: TenantContextService,
     private tenantsService: TenantsService,
   ) {}
 
   private escapeRegex(term: string): string {
     return term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  private isDuplicateKeyError(err: unknown): boolean {
+    return (
+      typeof err === 'object' &&
+      err !== null &&
+      ((err as { code?: number | string }).code === 11000 ||
+        (err as { code?: number | string }).code === 'E11000')
+    );
+  }
+
+  private rethrowPersistError(err: unknown, fallbackMessage: string): never {
+    if (
+      err instanceof BadRequestException ||
+      err instanceof NotFoundException ||
+      err instanceof ForbiddenException ||
+      err instanceof ConflictException
+    ) {
+      throw err;
+    }
+    if (this.isDuplicateKeyError(err)) {
+      throw new ConflictException(
+        'Ya existe un ítem con ese código en este tenant',
+      );
+    }
+    throw new BadRequestException(fallbackMessage);
   }
 
   private buildSort(orden?: ServicioOrden): Record<string, 1 | -1> {
@@ -49,67 +92,91 @@ export class ServiciosService implements OnModuleInit {
     }
   }
 
+  /**
+   * Valida que categoriaId exista, sea del tenant y esté activa.
+   * Story 5.3 / AD-20.
+   */
+  private async assertCategoriaActivaDelTenant(
+    categoriaId: string,
+    tenantId: Types.ObjectId,
+  ): Promise<CategoriaServicioDocument> {
+    if (!isStrictObjectId(categoriaId)) {
+      throw new BadRequestException('Categoría inválida o inactiva');
+    }
+    const cat = await this.categoriaModel
+      .findOne({ _id: categoriaId, tenantId })
+      .exec();
+    if (!cat || cat.activo === false) {
+      throw new BadRequestException('Categoría inválida o inactiva');
+    }
+    return cat;
+  }
+
+  /**
+   * Resuelve categoría activa del tenant destino por código (multi-tenant).
+   */
+  private async resolveCategoriaIdByCodigo(
+    codigo: string,
+    tenantId: Types.ObjectId,
+  ): Promise<Types.ObjectId> {
+    const cat = await this.categoriaModel
+      .findOne({
+        tenantId,
+        codigo,
+        activo: { $ne: false },
+      })
+      .exec();
+    if (!cat) {
+      throw new BadRequestException(
+        `Categoría «${codigo}» no existe o está inactiva en tenant ${String(tenantId)}`,
+      );
+    }
+    return cat._id as Types.ObjectId;
+  }
+
   private buildDocPayload(
     dto: CreateServicioDto,
     tenantId: Types.ObjectId,
+    categoriaId: Types.ObjectId,
   ): Record<string, unknown> {
     const descripcion = dto.descripcion?.trim();
+    const codigo = dto.codigo?.trim();
     return {
       nombre: dto.nombre.trim(),
       ...(descripcion ? { descripcion } : {}),
+      ...(codigo ? { codigo } : {}),
       precioUnitario: dto.precioUnitario,
-      categoria: dto.categoria,
+      categoriaId,
       tenantId,
+      tipo: dto.tipo,
       moneda: 'MXN',
       activo: dto.activo !== undefined ? dto.activo : true,
     };
   }
 
-  /** Backfill one-shot: docs legacy sin categoria → OTR. */
-  async onModuleInit() {
-    try {
-      const result = await this.servicioModel.updateMany(
-        {
-          $or: [
-            { categoria: { $exists: false } },
-            { categoria: null },
-            { categoria: '' },
-          ],
-        },
-        { $set: { categoria: CategoriaServicio.OTR } },
-      );
-      if (result.modifiedCount > 0) {
-        this.logger.log(
-          `Backfill categoria=OTR en ${result.modifiedCount} servicio(s) legacy`,
-        );
-      }
-    } catch (err) {
-      this.logger.warn(`Backfill categoria omitido: ${String(err)}`);
-    }
-  }
-
   async create(createServicioDto: CreateServicioDto): Promise<Servicio> {
     try {
       const tenantId = this.tenantContext.getTenantId();
+      const cat = await this.assertCategoriaActivaDelTenant(
+        createServicioDto.categoriaId,
+        tenantId,
+      );
       const servicio = new this.servicioModel(
-        this.buildDocPayload(createServicioDto, tenantId),
+        this.buildDocPayload(
+          createServicioDto,
+          tenantId,
+          cat._id as Types.ObjectId,
+        ),
       );
       return await servicio.save();
     } catch (err) {
-      if (
-        err instanceof BadRequestException ||
-        err instanceof NotFoundException ||
-        err instanceof ForbiddenException
-      ) {
-        throw err;
-      }
-      throw new BadRequestException('Error al crear el servicio');
+      this.rethrowPersistError(err, 'Error al crear el servicio');
     }
   }
 
   /**
    * Story 4.4 — create-only multi-tenant (admin).
-   * Destinos = dto.tenantIds (tenants activos); no usa getTenantId() como destino.
+   * Destinos = dto.tenantIds. categoriaId del body se remapea por `codigo` en cada destino (5.3).
    */
   async createForTenants(
     dto: CreateServicioMultiDto,
@@ -121,14 +188,13 @@ export class ServiciosService implements OnModuleInit {
 
     const resolved: Types.ObjectId[] = [];
     for (const id of uniqueIds) {
-      // Destinos de create multi → 400 (no 404 de recurso), alineado a Swagger
       if (!isStrictObjectId(id)) {
         throw new BadRequestException(
           `Tenant destino inválido o inactivo: ${id}`,
         );
       }
       const tenant = await this.tenantsService.findById(id);
-      if (!tenant || (tenant as any).activo === false) {
+      if (!tenant || (tenant as { activo?: boolean }).activo === false) {
         throw new BadRequestException(
           `Tenant destino inválido o inactivo: ${id}`,
         );
@@ -136,33 +202,48 @@ export class ServiciosService implements OnModuleInit {
       resolved.push(tenant._id as Types.ObjectId);
     }
 
+    // Código canónico desde la categoría del tenant de contexto (X-Tenant-Id / JWT)
+    const contextTenantId = this.tenantContext.getTenantId();
+    const sourceCat = await this.assertCategoriaActivaDelTenant(
+      dto.categoriaId,
+      contextTenantId,
+    );
+    const codigoCategoria = sourceCat.codigo;
+
     const created: Servicio[] = [];
     try {
       for (const tenantId of resolved) {
-        const servicio = new this.servicioModel(
-          this.buildDocPayload(dto, tenantId),
+        const categoriaId = await this.resolveCategoriaIdByCodigo(
+          codigoCategoria,
+          tenantId,
         );
-        created.push(await servicio.save());
+        const servicio = new this.servicioModel(
+          this.buildDocPayload(dto, tenantId, categoriaId),
+        );
+        try {
+          created.push(await servicio.save());
+        } catch (err) {
+          // Incluir tenant destino: en multi el mensaje genérico de «este tenant» es opaco
+          if (this.isDuplicateKeyError(err)) {
+            throw new ConflictException(
+              `Ya existe un ítem con ese código en el tenant ${String(tenantId)}`,
+            );
+          }
+          throw err;
+        }
       }
       return { created };
     } catch (err) {
-      // Best-effort compensar inserts de este request
       for (const doc of created) {
         try {
-          const id = (doc as any)._id;
+          const id = (doc as { _id?: Types.ObjectId })._id;
           if (id) await this.servicioModel.deleteOne({ _id: id }).exec();
         } catch {
           /* ignore */
         }
       }
-      if (
-        err instanceof BadRequestException ||
-        err instanceof NotFoundException ||
-        err instanceof ForbiddenException
-      ) {
-        throw err;
-      }
-      throw new BadRequestException(
+      this.rethrowPersistError(
+        err,
         'Error al crear el servicio en los tenants indicados',
       );
     }
@@ -178,7 +259,6 @@ export class ServiciosService implements OnModuleInit {
 
     const matchConditions: Record<string, unknown> = { tenantId };
 
-    // Omitido / true → activos (incl. legacy sin campo). false → solo inactivos.
     if (filters?.activo === undefined || filters.activo === true) {
       matchConditions.activo = { $ne: false };
     } else {
@@ -192,8 +272,21 @@ export class ServiciosService implements OnModuleInit {
       };
     }
 
-    if (filters?.categoria) {
-      matchConditions.categoria = filters.categoria;
+    if (filters?.categoriaId) {
+      matchConditions.categoriaId = new Types.ObjectId(filters.categoriaId);
+    }
+
+    if (filters?.tipo) {
+      // servicio: incluir docs legacy sin campo (default schema no aplica en query)
+      if (filters.tipo === TipoItem.SERVICIO) {
+        matchConditions.$or = [
+          { tipo: TipoItem.SERVICIO },
+          { tipo: { $exists: false } },
+          { tipo: null },
+        ];
+      } else {
+        matchConditions.tipo = filters.tipo;
+      }
     }
 
     const [data, total] = await Promise.all([
@@ -243,7 +336,7 @@ export class ServiciosService implements OnModuleInit {
     const tenantId = this.tenantContext.getTenantId();
 
     const $set: Record<string, unknown> = {};
-    const $unset: Record<string, 1> = {};
+    const $unset: Record<string, 1 | ''> = {};
 
     if (updateServicioDto.nombre !== undefined) {
       $set.nombre = updateServicioDto.nombre.trim();
@@ -256,33 +349,87 @@ export class ServiciosService implements OnModuleInit {
     if (updateServicioDto.precioUnitario !== undefined) {
       $set.precioUnitario = updateServicioDto.precioUnitario;
     }
-    if (updateServicioDto.categoria !== undefined) {
-      $set.categoria = updateServicioDto.categoria;
+    // != null: IsOptional salta @IsEnum cuando llega null → no persistir null
+    if (updateServicioDto.tipo != null) {
+      $set.tipo = updateServicioDto.tipo;
+      // Story 8.1 review: servicio no lleva imagen — limpiar al cambiar tipo
+      if (updateServicioDto.tipo === TipoItem.SERVICIO) {
+        $unset.imagenUrl = 1;
+      }
+    }
+    if (updateServicioDto.codigo !== undefined) {
+      const c = String(updateServicioDto.codigo ?? '').trim();
+      if (c) $set.codigo = c;
+      else $unset.codigo = 1;
+    }
+    if (updateServicioDto.categoriaId !== undefined) {
+      const cat = await this.assertCategoriaActivaDelTenant(
+        updateServicioDto.categoriaId,
+        tenantId,
+      );
+      $set.categoriaId = cat._id;
+      // Solo limpiar enum legacy al asignar categoriaId (protege docs pre-5.4)
+      $unset.categoria = '';
     }
     if (updateServicioDto.activo !== undefined) {
+      if (
+        updateServicioDto.activo === true &&
+        updateServicioDto.categoriaId === undefined
+      ) {
+        const existing = await this.servicioModel
+          .findOne({ _id: id, tenantId })
+          .exec();
+        if (!existing) {
+          throw new NotFoundException(`Servicio con ID ${id} no encontrado`);
+        }
+        await this.assertCategoriaActivaDelTenant(
+          String(existing.categoriaId),
+          tenantId,
+        );
+      }
       $set.activo = updateServicioDto.activo;
     }
-    // NFR-4: moneda siempre MXN
     $set.moneda = 'MXN';
 
     const update: Record<string, unknown> = { $set };
-    if (Object.keys($unset).length) update.$unset = $unset;
-
-    const servicio = await this.servicioModel
-      .findOneAndUpdate({ _id: id, tenantId }, update, { new: true })
-      .exec();
-    if (!servicio) {
-      throw new NotFoundException(`Servicio con ID ${id} no encontrado`);
+    if (Object.keys($unset).length > 0) {
+      update.$unset = $unset;
     }
-    return servicio;
+
+    try {
+      const servicio = await this.servicioModel
+        .findOneAndUpdate({ _id: id, tenantId }, update, { new: true })
+        .exec();
+      if (!servicio) {
+        throw new NotFoundException(`Servicio con ID ${id} no encontrado`);
+      }
+      if (updateServicioDto.tipo === TipoItem.SERVICIO) {
+        const { absPath } = this.catalogoImagenPaths(
+          tenantId,
+          String(servicio._id),
+        );
+        unlinkQuiet(absPath);
+      }
+      return servicio;
+    } catch (err) {
+      if (err instanceof NotFoundException) throw err;
+      this.rethrowPersistError(err, 'Error al actualizar el servicio');
+    }
   }
 
   async toggleActivo(id: string): Promise<Servicio> {
     const servicio = await this.findOne(id);
     const doc = servicio as ServicioDocument;
-    // Ausente/legacy = activo (mismo criterio que findAll $ne: false / contactos)
     const currentlyActive = doc.activo !== false;
-    doc.activo = !currentlyActive;
+    if (currentlyActive) {
+      doc.activo = false;
+    } else {
+      await this.assertCategoriaActivaDelTenant(
+        String(doc.categoriaId),
+        this.tenantContext.getTenantId(),
+      );
+      doc.activo = true;
+    }
     return await doc.save();
   }
 
@@ -300,5 +447,131 @@ export class ServiciosService implements OnModuleInit {
       throw new NotFoundException(`Servicio con ID ${id} no encontrado`);
     }
     return servicio;
+  }
+
+  /** Normaliza mime: lowercase + sin parámetros. */
+  private normalizeMime(raw?: string): string {
+    if (!raw) return '';
+    return raw.split(';')[0].trim().toLowerCase();
+  }
+
+  private catalogoImagenPaths(
+    tenantId: Types.ObjectId,
+    servicioId: string,
+  ): { absPath: string; imagenUrl: string } {
+    const imagenUrl = `/uploads/catalogo/${String(tenantId)}/${servicioId}.webp`;
+    const absPath = join(
+      process.cwd(),
+      'uploads',
+      'catalogo',
+      String(tenantId),
+      `${servicioId}.webp`,
+    );
+    return { absPath, imagenUrl };
+  }
+
+  private assertValidProductoImagen(file: Express.Multer.File): void {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Archivo de imagen requerido');
+    }
+    if (file.size > MAX_IMAGEN_BYTES) {
+      throw new BadRequestException('La imagen no puede superar 1MB');
+    }
+    const mime = this.normalizeMime(file.mimetype);
+    if (!ALLOWED_IMAGEN_MIME.has(mime)) {
+      throw new BadRequestException(
+        'Tipo de imagen no permitido (use PNG, JPEG o WebP)',
+      );
+    }
+  }
+
+  /**
+   * Story 8.1 / AD-23 — upload + sharp → WebP en path canónico.
+   * Solo `tipo=producto`.
+   */
+  async uploadImagen(
+    id: string,
+    file: Express.Multer.File,
+  ): Promise<Servicio> {
+    const doc = (await this.findOne(id)) as ServicioDocument;
+    if (doc.tipo !== TipoItem.PRODUCTO) {
+      throw new BadRequestException(
+        'Solo los ítems tipo producto aceptan imagen',
+      );
+    }
+    this.assertValidProductoImagen(file);
+
+    let webp: Buffer;
+    try {
+      webp = await sharp(file.buffer)
+        .rotate()
+        .resize({
+          width: 1200,
+          height: 1200,
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .webp()
+        .toBuffer();
+    } catch {
+      throw new BadRequestException('No se pudo procesar la imagen');
+    }
+
+    const tenantId = this.tenantContext.getTenantId();
+    const servicioId = String(doc._id);
+    const { absPath, imagenUrl } = this.catalogoImagenPaths(
+      tenantId,
+      servicioId,
+    );
+    writeBufferFile(
+      absPath,
+      webp,
+      'No se pudo escribir la imagen en disco',
+    );
+
+    try {
+      const updated = await this.servicioModel
+        .findOneAndUpdate(
+          { _id: id, tenantId },
+          { $set: { imagenUrl } },
+          { new: true },
+        )
+        .exec();
+      if (!updated) {
+        unlinkQuiet(absPath);
+        throw new NotFoundException(`Servicio con ID ${id} no encontrado`);
+      }
+      return updated;
+    } catch (err) {
+      if (err instanceof NotFoundException || err instanceof BadRequestException) {
+        throw err;
+      }
+      unlinkQuiet(absPath);
+      throw err;
+    }
+  }
+
+  /** Story 8.1 — quitar imagen de producto + archivo en disco. */
+  async clearImagen(id: string): Promise<Servicio> {
+    const doc = (await this.findOne(id)) as ServicioDocument;
+    if (doc.tipo !== TipoItem.PRODUCTO) {
+      throw new BadRequestException(
+        'Solo los ítems tipo producto aceptan imagen',
+      );
+    }
+    const tenantId = this.tenantContext.getTenantId();
+    const { absPath } = this.catalogoImagenPaths(tenantId, String(doc._id));
+    const updated = await this.servicioModel
+      .findOneAndUpdate(
+        { _id: id, tenantId },
+        { $unset: { imagenUrl: 1 } },
+        { new: true },
+      )
+      .exec();
+    if (!updated) {
+      throw new NotFoundException(`Servicio con ID ${id} no encontrado`);
+    }
+    unlinkQuiet(absPath);
+    return updated;
   }
 }

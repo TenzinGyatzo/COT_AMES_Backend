@@ -4,20 +4,18 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  IsMongoId,
   IsOptional,
   IsString,
   Max,
   Min,
 } from 'class-validator';
-import {
-  CategoriaServicio,
-  CATEGORIA_SERVICIO_VALUES,
-} from '../enums/categoria-servicio.enum';
 import { parseOptionalQueryBoolean } from '../../common/parse-optional-query-boolean';
 import {
   ServicioOrden,
   SERVICIO_ORDEN_VALUES,
 } from '../enums/servicio-orden.enum';
+import { TipoItem, TIPO_ITEM_VALUES } from '../enums/tipo-item.enum';
 
 export class FilterServicioDto {
   @ApiPropertyOptional({
@@ -29,15 +27,26 @@ export class FilterServicioDto {
   nombre?: string;
 
   @ApiPropertyOptional({
-    description: 'Filtrar por categoría fija',
-    enum: CATEGORIA_SERVICIO_VALUES,
-    example: CategoriaServicio.MED,
+    description: 'Filtrar por ID de categoría del tenant',
+    example: '507f1f77bcf86cd799439011',
   })
   @IsOptional()
-  @IsEnum(CategoriaServicio, {
-    message: `categoria debe ser una de: ${CATEGORIA_SERVICIO_VALUES.join(', ')}`,
+  @IsMongoId({ message: 'categoriaId debe ser un ObjectId válido' })
+  categoriaId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filtrar por tipo de ítem (servicio | producto)',
+    enum: TIPO_ITEM_VALUES,
+    example: TipoItem.SERVICIO,
   })
-  categoria?: CategoriaServicio;
+  @IsOptional()
+  @Transform(({ value }) =>
+    value === '' || value === null || value === undefined ? undefined : value,
+  )
+  @IsEnum(TipoItem, {
+    message: `tipo debe ser una de: ${TIPO_ITEM_VALUES.join(', ')}`,
+  })
+  tipo?: TipoItem;
 
   @ApiPropertyOptional({
     description:
