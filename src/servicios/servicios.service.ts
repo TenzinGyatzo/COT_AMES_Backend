@@ -332,6 +332,37 @@ export class ServiciosService {
     return servicio;
   }
 
+  /**
+   * Lookup live imagenUrl/tipo por ids (PDF público / paridad).
+   * No usa TenantContext — el caller pasa tenantId (magic link sin JWT).
+   * Cotizacion.items es `type: [Object]`, así que populate('items.servicioId') no aporta.
+   */
+  async findImagenMetaByIds(
+    tenantId: Types.ObjectId,
+    ids: string[],
+  ): Promise<
+    Array<{ _id: Types.ObjectId; imagenUrl?: string; tipo?: string }>
+  > {
+    const unique = [
+      ...new Set(
+        ids
+          .map((id) => String(id || '').trim())
+          .filter((id) => Types.ObjectId.isValid(id)),
+      ),
+    ];
+    if (!unique.length) return [];
+    return this.servicioModel
+      .find({
+        tenantId,
+        _id: { $in: unique.map((id) => new Types.ObjectId(id)) },
+      })
+      .select({ imagenUrl: 1, tipo: 1 })
+      .lean()
+      .exec() as Promise<
+      Array<{ _id: Types.ObjectId; imagenUrl?: string; tipo?: string }>
+    >;
+  }
+
   async update(
     id: string,
     updateServicioDto: UpdateServicioDto,

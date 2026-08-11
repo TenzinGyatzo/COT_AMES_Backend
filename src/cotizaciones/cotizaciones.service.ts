@@ -2179,21 +2179,49 @@ export class CotizacionesService {
 
     const includeImages = c.incluirImagenesPdf === true;
 
-    // Proyección live imagenUrl/tipo (AD-22) solo si el PDF pedirá imágenes.
-    if (
-      includeImages &&
-      Array.isArray(c.items) &&
-      c.items.length &&
-      typeof c.populate === 'function'
-    ) {
+    // items es type:[Object] → populate('items.servicioId') no hidrata.
+    // Lookup live por ids (AD-22) solo si el PDF pedirá imágenes.
+    const imagenMetaById = new Map<
+      string,
+      { imagenUrl?: string; tipo?: string }
+    >();
+    if (includeImages && Array.isArray(c.items) && c.items.length) {
       try {
-        await c.populate({
-          path: 'items.servicioId',
-          select: 'imagenUrl tipo',
-        });
+        const tid = c.tenantId;
+        const tenantOid =
+          tid instanceof Types.ObjectId
+            ? tid
+            : tid
+              ? new Types.ObjectId(String(tid))
+              : null;
+        if (tenantOid) {
+          const ids = c.items
+            .map((it: any) => {
+              const sid = it?.servicioId;
+              if (sid == null) return '';
+              if (typeof sid === 'object') {
+                return String(sid._id ?? sid.id ?? '');
+              }
+              return String(sid);
+            })
+            .filter(Boolean);
+          const rows = await this.serviciosService.findImagenMetaByIds(
+            tenantOid,
+            ids,
+          );
+          for (const row of rows) {
+            imagenMetaById.set(String(row._id), {
+              imagenUrl:
+                typeof row.imagenUrl === 'string'
+                  ? row.imagenUrl.trim() || undefined
+                  : undefined,
+              tipo: typeof row.tipo === 'string' ? row.tipo : undefined,
+            });
+          }
+        }
       } catch (err) {
         this.logger.warn(
-          `No se pudo populate servicioId público para ${c.folio}: ${err}`,
+          `No se pudo resolver imagenUrl pública para ${c.folio}: ${err}`,
         );
       }
     }
@@ -2274,24 +2302,29 @@ export class CotizacionesService {
             sidRaw != null && String(sidRaw).trim()
               ? String(sidRaw)
               : undefined;
+          const meta = servicioId ? imagenMetaById.get(servicioId) : undefined;
           let tipoSnapshot: 'producto' | 'servicio' | undefined =
             it.tipoSnapshot === 'producto' || it.tipoSnapshot === 'servicio'
               ? (it.tipoSnapshot as 'producto' | 'servicio')
               : undefined;
-          // Legacy sin tipoSnapshot: fallback live tipo (paridad admin populate).
           if (
+            !tipoSnapshot &&
+            (meta?.tipo === 'producto' || meta?.tipo === 'servicio')
+          ) {
+            tipoSnapshot = meta.tipo;
+          } else if (
             !tipoSnapshot &&
             populated &&
             (populated.tipo === 'producto' || populated.tipo === 'servicio')
           ) {
             tipoSnapshot = populated.tipo;
           }
-          const imagenUrl =
-            includeImages &&
-            populated &&
-            typeof populated.imagenUrl === 'string'
-              ? populated.imagenUrl.trim() || undefined
-              : undefined;
+          const imagenUrl = includeImages
+            ? meta?.imagenUrl ||
+              (populated && typeof populated.imagenUrl === 'string'
+                ? populated.imagenUrl.trim() || undefined
+                : undefined)
+            : undefined;
 
           return {
             nombre: String(it.nombreServicioSnapshot || 'Servicio'),
@@ -2301,7 +2334,6 @@ export class CotizacionesService {
             cantidad: Number(it.cantidad) || 0,
             precioUnitario: Number(it.precioUnitarioSnapshot) || 0,
             subtotal: Number(it.subtotal) || 0,
-            // Datos de imagen solo si el flag PDF lo autoriza.
             ...(includeImages && servicioId ? { servicioId } : {}),
             ...(includeImages && tipoSnapshot ? { tipoSnapshot } : {}),
             ...(imagenUrl ? { imagenUrl } : {}),
