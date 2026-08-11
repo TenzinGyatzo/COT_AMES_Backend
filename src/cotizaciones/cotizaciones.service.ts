@@ -53,6 +53,7 @@ import { RepetirCotizacionPreviewDto } from './dto/repetir-cotizacion-preview.dt
 import { RepetirCotizacionResponseDto } from './dto/repetir-cotizacion-response.dto';
 import { CreateNotaInternaDto } from './dto/create-nota-interna.dto';
 import { UpdateNotaInternaDto } from './dto/update-nota-interna.dto';
+import { hasBancariosUtiles } from '../tenants/bancarios.util';
 
 export type EstadoActorJwt = {
   _id?: string;
@@ -2175,40 +2176,138 @@ export class CotizacionesService {
     opts?: { alreadyResponded?: boolean },
   ): Promise<PublicCotizacionResponseDto> {
     const c = cotizacion as any;
+
+    const includeImages = c.incluirImagenesPdf === true;
+
+    // Proyección live imagenUrl/tipo (AD-22) solo si el PDF pedirá imágenes.
+    if (
+      includeImages &&
+      Array.isArray(c.items) &&
+      c.items.length &&
+      typeof c.populate === 'function'
+    ) {
+      try {
+        await c.populate({
+          path: 'items.servicioId',
+          select: 'imagenUrl tipo',
+        });
+      } catch (err) {
+        this.logger.warn(
+          `No se pudo populate servicioId público para ${c.folio}: ${err}`,
+        );
+      }
+    }
+
     let branding: PublicCotizacionResponseDto['branding'];
+    let bancarios: PublicCotizacionResponseDto['bancarios'];
     try {
       const tid = c.tenantId;
       if (tid) {
         const cfg = await this.tenantConfigService.findByTenantId(
           tid instanceof Types.ObjectId ? tid : new Types.ObjectId(String(tid)),
         );
-        const razon = cfg?.branding?.razonSocial?.trim();
-        const logo = cfg?.branding?.logoUrl?.trim();
+        const b = cfg?.branding;
+        const razon = b?.razonSocial?.trim();
+        const logo = b?.logoUrl?.trim();
         if (razon || logo) {
           branding = {
             ...(razon ? { razonSocial: razon } : {}),
             ...(logo ? { logoUrl: logo } : {}),
           };
         }
+        // Guest PDF sin JWT: bancarios solo si flag on + útiles.
+        // Rellenar titular/domicilio/rfc/email desde branding como pdfHelper JWT.
+        if (c.incluirDatosBancarios === true && hasBancariosUtiles(cfg?.bancarios)) {
+          const raw = cfg!.bancarios || {};
+          const titular =
+            (typeof raw.titular === 'string' && raw.titular.trim()) ||
+            razon ||
+            undefined;
+          const domicilio =
+            (typeof raw.domicilio === 'string' && raw.domicilio.trim()) ||
+            b?.domicilio?.trim() ||
+            undefined;
+          const rfc =
+            (typeof raw.rfc === 'string' && raw.rfc.trim()) ||
+            b?.rfc?.trim() ||
+            undefined;
+          const email =
+            (typeof raw.email === 'string' && raw.email.trim()) ||
+            b?.emailContacto?.trim() ||
+            undefined;
+          bancarios = {
+            ...(raw.logoUrl ? { logoUrl: String(raw.logoUrl) } : {}),
+            ...(titular ? { titular: String(titular) } : {}),
+            ...(raw.banco ? { banco: String(raw.banco) } : {}),
+            ...(raw.cuenta ? { cuenta: String(raw.cuenta) } : {}),
+            ...(raw.clabe ? { clabe: String(raw.clabe) } : {}),
+            ...(domicilio ? { domicilio: String(domicilio) } : {}),
+            ...(rfc ? { rfc: String(rfc) } : {}),
+            ...(email ? { email: String(email) } : {}),
+          };
+        }
       }
     } catch (err) {
       this.logger.warn(
-        `No se pudo cargar branding público para ${c.folio}: ${err}`,
+        `No se pudo cargar branding/bancarios públicos para ${c.folio}: ${err}`,
       );
     }
 
-    const items = Array.isArray(c.items)
-      ? c.items.map((it: any) => ({
-          nombre: String(it.nombreServicioSnapshot || 'Servicio'),
-          ...(it.descripcionServicioSnapshot
-            ? { descripcion: String(it.descripcionServicioSnapshot) }
-            : {}),
-          cantidad: Number(it.cantidad) || 0,
-          precioUnitario: Number(it.precioUnitarioSnapshot) || 0,
-          subtotal: Number(it.subtotal) || 0,
-        }))
-      : [];
+    const isOidLike = (v: unknown): boolean => {
+      if (v instanceof Types.ObjectId) return true;
+      if (!v || typeof v !== 'object') return false;
+      const anyV = v as { _bsontype?: string; buffer?: unknown };
+      return anyV._bsontype === 'ObjectId' || Buffer.isBuffer(anyV.buffer);
+    };
 
+    const items = Array.isArray(c.items)
+      ? c.items.map((it: any) => {
+          const sidVal = it.servicioId;
+          const populated =
+            sidVal && typeof sidVal === 'object' && !isOidLike(sidVal)
+              ? sidVal
+              : null;
+          const sidRaw = populated
+            ? populated._id ?? populated.id
+            : sidVal;
+          const servicioId =
+            sidRaw != null && String(sidRaw).trim()
+              ? String(sidRaw)
+              : undefined;
+          let tipoSnapshot: 'producto' | 'servicio' | undefined =
+            it.tipoSnapshot === 'producto' || it.tipoSnapshot === 'servicio'
+              ? (it.tipoSnapshot as 'producto' | 'servicio')
+              : undefined;
+          // Legacy sin tipoSnapshot: fallback live tipo (paridad admin populate).
+          if (
+            !tipoSnapshot &&
+            populated &&
+            (populated.tipo === 'producto' || populated.tipo === 'servicio')
+          ) {
+            tipoSnapshot = populated.tipo;
+          }
+          const imagenUrl =
+            includeImages &&
+            populated &&
+            typeof populated.imagenUrl === 'string'
+              ? populated.imagenUrl.trim() || undefined
+              : undefined;
+
+          return {
+            nombre: String(it.nombreServicioSnapshot || 'Servicio'),
+            ...(it.descripcionServicioSnapshot
+              ? { descripcion: String(it.descripcionServicioSnapshot) }
+              : {}),
+            cantidad: Number(it.cantidad) || 0,
+            precioUnitario: Number(it.precioUnitarioSnapshot) || 0,
+            subtotal: Number(it.subtotal) || 0,
+            // Datos de imagen solo si el flag PDF lo autoriza.
+            ...(includeImages && servicioId ? { servicioId } : {}),
+            ...(includeImages && tipoSnapshot ? { tipoSnapshot } : {}),
+            ...(imagenUrl ? { imagenUrl } : {}),
+          };
+        })
+      : [];
     const toIso = (d: unknown): string | undefined => {
       if (!d) return undefined;
       const date = d instanceof Date ? d : new Date(d as string);
@@ -2248,7 +2347,36 @@ export class CotizacionesService {
     if (c.telefonoContacto) dto.telefonoContacto = String(c.telefonoContacto);
     if (c.emailContacto) dto.emailContacto = String(c.emailContacto);
     if (c.cargoContacto) dto.cargoContacto = String(c.cargoContacto);
+
+    // Flags PDF (fuente de verdad en Cotizacion; false/ausente → off en FE).
+    if (typeof c.incluirDescripciones === 'boolean') {
+      dto.incluirDescripciones = c.incluirDescripciones;
+    }
+    if (typeof c.incluirImagenesPdf === 'boolean') {
+      dto.incluirImagenesPdf = c.incluirImagenesPdf;
+    }
+    if (typeof c.incluirDatosBancarios === 'boolean') {
+      dto.incluirDatosBancarios = c.incluirDatosBancarios;
+    }
+
+    if (Array.isArray(c.plantillasSnapshot) && c.plantillasSnapshot.length) {
+      const plantillas = c.plantillasSnapshot
+        .map((p: any) => {
+          const plantillaId = String(p.plantillaId || '').trim();
+          if (!plantillaId) return null;
+          return {
+            plantillaId,
+            nombreSnapshot: String(p.nombreSnapshot || ''),
+            schemaVersion: Number(p.schemaVersion) || 1,
+            secciones: Array.isArray(p.secciones) ? p.secciones : [],
+          };
+        })
+        .filter(Boolean);
+      if (plantillas.length) dto.plantillasSnapshot = plantillas;
+    }
+
     if (branding) dto.branding = branding;
+    if (bancarios) dto.bancarios = bancarios;
     if (opts?.alreadyResponded) dto.alreadyResponded = true;
 
     return dto;
