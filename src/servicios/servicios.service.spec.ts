@@ -1169,9 +1169,10 @@ jest.mock('sharp', () => {
     webp: jest.fn().mockReturnThis(),
     toBuffer: jest.fn().mockResolvedValue(Buffer.from('webp-bytes')),
   };
+  const sharpFn = jest.fn(() => chain);
   return {
     __esModule: true,
-    default: jest.fn(() => chain),
+    default: Object.assign(sharpFn, { __chain: chain }),
   };
 });
 
@@ -1185,6 +1186,17 @@ describe('ServiciosService — imagen producto / Story 8.1', () => {
   const tenantId = new Types.ObjectId();
   const productoId = new Types.ObjectId();
   const servicioId = new Types.ObjectId();
+  const MAX_WEBP_OUTPUT_BYTES = 200 * 1024;
+
+  const sharpMock = jest.requireMock('sharp').default as jest.Mock & {
+    __chain: {
+      rotate: jest.Mock;
+      resize: jest.Mock;
+      webp: jest.Mock;
+      toBuffer: jest.Mock;
+    };
+  };
+  const sharpChain = sharpMock.__chain;
 
   const servicioModel: any = {
     find: jest.fn(),
@@ -1215,21 +1227,13 @@ describe('ServiciosService — imagen producto / Story 8.1', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     tenantContext.getTenantId = jest.fn().mockReturnValue(tenantId);
+    sharpChain.rotate.mockReturnThis();
+    sharpChain.resize.mockReturnThis();
+    sharpChain.webp.mockReturnThis();
+    sharpChain.toBuffer.mockResolvedValue(Buffer.from('webp-bytes'));
   });
 
-  function pngFile(overrides: Partial<Express.Multer.File> = {}): Express.Multer.File {
-    return {
-      fieldname: 'file',
-      originalname: 'p.png',
-      encoding: '7bit',
-      mimetype: 'image/png',
-      size: 100,
-      buffer: Buffer.from('fake-png'),
-      ...overrides,
-    } as Express.Multer.File;
-  }
-
-  it('uploadImagen producto → path canónico + imagenUrl', async () => {
+  function mockProductoUpload() {
     servicioModel.findOne.mockReturnValue({
       exec: jest.fn().mockResolvedValue({
         _id: productoId,
@@ -1245,6 +1249,23 @@ describe('ServiciosService — imagen producto / Story 8.1', () => {
     servicioModel.findOneAndUpdate.mockReturnValue({
       exec: jest.fn().mockResolvedValue(updated),
     });
+    return updated;
+  }
+
+  function pngFile(overrides: Partial<Express.Multer.File> = {}): Express.Multer.File {
+    return {
+      fieldname: 'file',
+      originalname: 'p.png',
+      encoding: '7bit',
+      mimetype: 'image/png',
+      size: 100,
+      buffer: Buffer.from('fake-png'),
+      ...overrides,
+    } as Express.Multer.File;
+  }
+
+  it('uploadImagen producto → path canónico + imagenUrl', async () => {
+    mockProductoUpload();
 
     const result = await service.uploadImagen(productoId.toString(), pngFile());
     expect(writeBufferFile).toHaveBeenCalled();
@@ -1255,6 +1276,96 @@ describe('ServiciosService — imagen producto / Story 8.1', () => {
     expect(result.imagenUrl).toBe(
       `/uploads/catalogo/${tenantId}/${productoId}.webp`,
     );
+  });
+
+  describe('WebP quality threshold', () => {
+    const resized = Buffer.from('resized-raw');
+
+    it('bajo umbral → una sola pasada @ quality 80', async () => {
+      mockProductoUpload();
+      const small = Buffer.alloc(1000, 1);
+      sharpChain.toBuffer
+        .mockResolvedValueOnce(resized)
+        .mockResolvedValueOnce(small);
+
+      await service.uploadImagen(productoId.toString(), pngFile());
+
+      expect(sharpChain.webp).toHaveBeenCalledTimes(1);
+      expect(sharpChain.webp).toHaveBeenCalledWith({ quality: 80 });
+      expect(writeBufferFile).toHaveBeenCalledWith(
+        expect.any(String),
+        small,
+        expect.any(String),
+      );
+    });
+
+    it('exactamente 200KB @80 → no baja calidad', async () => {
+      mockProductoUpload();
+      const exact = Buffer.alloc(MAX_WEBP_OUTPUT_BYTES, 1);
+      sharpChain.toBuffer
+        .mockResolvedValueOnce(resized)
+        .mockResolvedValueOnce(exact);
+
+      await service.uploadImagen(productoId.toString(), pngFile());
+
+      expect(sharpChain.webp).toHaveBeenCalledTimes(1);
+      expect(sharpChain.webp).toHaveBeenCalledWith({ quality: 80 });
+      expect(writeBufferFile).toHaveBeenCalledWith(
+        expect.any(String),
+        exact,
+        expect.any(String),
+      );
+    });
+
+    it('sobre umbral → re-encode bajando calidad hasta ≤200KB', async () => {
+      mockProductoUpload();
+      const large = Buffer.alloc(MAX_WEBP_OUTPUT_BYTES + 1, 1);
+      const ok = Buffer.alloc(1000, 2);
+      sharpChain.toBuffer
+        .mockResolvedValueOnce(resized)
+        .mockResolvedValueOnce(large)
+        .mockResolvedValueOnce(ok);
+
+      await service.uploadImagen(productoId.toString(), pngFile());
+
+      const qualities = sharpChain.webp.mock.calls.map(
+        (c: unknown[]) => (c[0] as { quality: number }).quality,
+      );
+      expect(qualities[0]).toBe(80);
+      expect(qualities[1]).toBe(70);
+      expect(qualities.length).toBe(2);
+      expect(writeBufferFile).toHaveBeenCalledWith(
+        expect.any(String),
+        ok,
+        expect.any(String),
+      );
+    });
+
+    it('aún >200KB a quality 55 → persiste último buffer y upload OK', async () => {
+      mockProductoUpload();
+      const large = Buffer.alloc(MAX_WEBP_OUTPUT_BYTES + 50, 1);
+      sharpChain.toBuffer
+        .mockResolvedValueOnce(resized)
+        .mockResolvedValue(large);
+
+      const result = await service.uploadImagen(
+        productoId.toString(),
+        pngFile(),
+      );
+
+      const qualities = sharpChain.webp.mock.calls.map(
+        (c: unknown[]) => (c[0] as { quality: number }).quality,
+      );
+      expect(qualities).toEqual([80, 70, 60, 55]);
+      expect(writeBufferFile).toHaveBeenCalledWith(
+        expect.any(String),
+        large,
+        expect.any(String),
+      );
+      expect(result.imagenUrl).toBe(
+        `/uploads/catalogo/${tenantId}/${productoId}.webp`,
+      );
+    });
   });
 
   it('uploadImagen en tipo=servicio → 400', async () => {

@@ -33,6 +33,10 @@ import { ServicioOrden } from './enums/servicio-orden.enum';
 import { TipoItem } from './enums/tipo-item.enum';
 
 const MAX_IMAGEN_BYTES = 1_000_000;
+const WEBP_QUALITY_START = 80;
+const WEBP_QUALITY_MIN = 55;
+const WEBP_QUALITY_STEP = 10;
+const MAX_WEBP_OUTPUT_BYTES = 200 * 1024;
 const ALLOWED_IMAGEN_MIME = new Set([
   'image/png',
   'image/jpeg',
@@ -503,7 +507,19 @@ export class ServiciosService {
 
     let webp: Buffer;
     try {
-      webp = await sharp(file.buffer)
+      const qualities: number[] = [];
+      for (
+        let q = WEBP_QUALITY_START;
+        q > WEBP_QUALITY_MIN;
+        q -= WEBP_QUALITY_STEP
+      ) {
+        qualities.push(q);
+      }
+      qualities.push(WEBP_QUALITY_MIN);
+
+      // Resize una vez; re-encode WebP solo baja quality si supera el umbral.
+      // Si a WEBP_QUALITY_MIN sigue > MAX_WEBP_OUTPUT_BYTES, se persiste best-effort.
+      const resized = await sharp(file.buffer)
         .rotate()
         .resize({
           width: 1200,
@@ -511,8 +527,19 @@ export class ServiciosService {
           fit: 'inside',
           withoutEnlargement: true,
         })
-        .webp()
         .toBuffer();
+
+      webp = await sharp(resized)
+        .webp({ quality: qualities[0] })
+        .toBuffer();
+      for (let i = 1; i < qualities.length; i++) {
+        if (webp.length <= MAX_WEBP_OUTPUT_BYTES) {
+          break;
+        }
+        webp = await sharp(resized)
+          .webp({ quality: qualities[i] })
+          .toBuffer();
+      }
     } catch {
       throw new BadRequestException('No se pudo procesar la imagen');
     }
