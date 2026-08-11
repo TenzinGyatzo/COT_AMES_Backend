@@ -630,6 +630,68 @@ describe('TenantConfigService (Stories 2.1–2.5 + 3.2)', () => {
     expect(res.bancarios?.clabe).toBe('111');
   });
 
+  it('updateVigenciaBancarios setea defaults de cotización nueva (true/false)', async () => {
+    await service.findOrCreateForTenant(tenantId);
+    const updated = await service.updateVigenciaBancarios({
+      defaultIncluirDatosBancarios: true,
+      defaultIncluirDescripciones: false,
+      defaultIncluirImagenesPdf: true,
+    } as any);
+    expect(updated.defaultIncluirDatosBancarios).toBe(true);
+    expect(updated.defaultIncluirDescripciones).toBe(false);
+    expect(updated.defaultIncluirImagenesPdf).toBe(true);
+  });
+
+  it('updateVigenciaBancarios con null ausenta los defaults (vuelve a "sin configurar")', async () => {
+    store.set(String(tenantId), {
+      ...makeDoc(tenantId),
+      defaultIncluirDatosBancarios: true,
+      defaultIncluirDescripciones: false,
+      defaultIncluirImagenesPdf: true,
+    });
+    const updated = await service.updateVigenciaBancarios({
+      defaultIncluirDatosBancarios: null,
+      defaultIncluirDescripciones: null,
+      defaultIncluirImagenesPdf: null,
+    } as any);
+    expect(updated.defaultIncluirDatosBancarios).toBeUndefined();
+    expect(updated.defaultIncluirDescripciones).toBeUndefined();
+    expect(updated.defaultIncluirImagenesPdf).toBeUndefined();
+  });
+
+  it('updateVigenciaBancarios omitido no toca los defaults existentes', async () => {
+    store.set(String(tenantId), {
+      ...makeDoc(tenantId),
+      defaultIncluirDatosBancarios: true,
+    });
+    const updated = await service.updateVigenciaBancarios({
+      vigenciaDefaultDias: 45,
+    });
+    expect(updated.defaultIncluirDatosBancarios).toBe(true);
+    expect(updated.vigenciaDefaultDias).toBe(45);
+  });
+
+  it('toResponse omite defaults de cotización cuando no están configurados (ausencia ≠ false)', () => {
+    const doc = makeDoc(tenantId) as any;
+    const res = service.toResponse(doc);
+    expect(res.defaultIncluirDatosBancarios).toBeUndefined();
+    expect(res.defaultIncluirDescripciones).toBeUndefined();
+    expect(res.defaultIncluirImagenesPdf).toBeUndefined();
+  });
+
+  it('toResponse incluye defaults de cotización true/false explícitos', () => {
+    const doc = {
+      ...makeDoc(tenantId),
+      defaultIncluirDatosBancarios: false,
+      defaultIncluirDescripciones: true,
+      defaultIncluirImagenesPdf: false,
+    } as any;
+    const res = service.toResponse(doc);
+    expect(res.defaultIncluirDatosBancarios).toBe(false);
+    expect(res.defaultIncluirDescripciones).toBe(true);
+    expect(res.defaultIncluirImagenesPdf).toBe(false);
+  });
+
   it('toResponseAsync incluye tenantNombre y tenantClave del Tenant efectivo', async () => {
     tenantStore.set(String(tenantId), {
       nombre: 'AMES Querétaro',

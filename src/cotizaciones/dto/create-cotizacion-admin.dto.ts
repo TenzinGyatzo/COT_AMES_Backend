@@ -280,9 +280,8 @@ export class CreateCotizacionAdminDto {
 
   @ApiPropertyOptional({
     description:
-      'Indica si el PDF de la cotización debe incluir una segunda página con datos bancarios',
-    example: false,
-    default: false,
+      'Incluir datos bancarios. Omitido → preferencia tenant `defaultIncluirDatosBancarios` ?? true. La indisponibilidad de bancarios no fuerza false al persistir.',
+    example: true,
   })
   @IsOptional()
   @IsBoolean()
@@ -290,9 +289,8 @@ export class CreateCotizacionAdminDto {
 
   @ApiPropertyOptional({
     description:
-      'Si true, el PDF incluye la columna de descripción de servicios (default false)',
-    example: false,
-    default: false,
+      'Incluir descripciones. Omitido → preferencia tenant `defaultIncluirDescripciones` ?? true.',
+    example: true,
   })
   @IsOptional()
   @IsBoolean()
@@ -300,8 +298,8 @@ export class CreateCotizacionAdminDto {
 
   @ApiPropertyOptional({
     description:
-      'Si true, el PDF puede incluir imágenes de producto. Omitido → default AD-26 (true si algún producto de línea tiene imagenUrl). Story 8.2',
-    example: false,
+      'Incluir imágenes de producto en el PDF. Omitido → preferencia tenant `defaultIncluirImagenesPdf` ?? true.',
+    example: true,
   })
   @IsOptional()
   @IsBoolean()

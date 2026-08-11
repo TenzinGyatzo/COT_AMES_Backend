@@ -924,10 +924,10 @@ describe('CotizacionesService.createAdminCotizacion — plantillas (Story 6.5)',
     expect(plantillasService.update).not.toHaveBeenCalled();
   });
 
-  it('fuerza incluirDatosBancarios false sin bancarios útiles', async () => {
+  it('ya no fuerza incluirDatosBancarios false por falta de bancarios útiles', async () => {
     tenantConfigService.getForRequest.mockResolvedValue({
       vigenciaDefaultDias: 30,
-      bancarios: { banco: 'BBVA' },
+      bancarios: { banco: 'BBVA' }, // sin cuenta/clabe → no útil, pero ya no debe forzar false
     });
 
     await service.createAdminCotizacion({
@@ -935,11 +935,11 @@ describe('CotizacionesService.createAdminCotizacion — plantillas (Story 6.5)',
       incluirDatosBancarios: true,
     } as any);
 
-    expect(lastPersisted.incluirDatosBancarios).toBe(false);
+    expect(lastPersisted.incluirDatosBancarios).toBe(true);
   });
 });
 
-describe('CotizacionesService.createAdminCotizacion — incluirImagenesPdf (Story 8.2)', () => {
+describe('CotizacionesService.createAdminCotizacion — defaults de tenant para incluirDatosBancarios/incluirDescripciones/incluirImagenesPdf', () => {
   const tenantId = new Types.ObjectId();
   const servicioId = new Types.ObjectId();
   const year = new Date().getFullYear();
@@ -949,10 +949,7 @@ describe('CotizacionesService.createAdminCotizacion — incluirImagenesPdf (Stor
     getTenantId: jest.fn().mockReturnValue(tenantId),
   };
   const tenantConfigService = {
-    getForRequest: jest.fn().mockResolvedValue({
-      vigenciaDefaultDias: 30,
-      bancarios: {},
-    }),
+    getForRequest: jest.fn(),
   };
   const countersService = {
     nextFolio: jest.fn().mockResolvedValue(`COT-${year}-0082`),
@@ -966,6 +963,18 @@ describe('CotizacionesService.createAdminCotizacion — incluirImagenesPdf (Stor
     jest.clearAllMocks();
     (tenantContext.getTenantId as jest.Mock).mockReturnValue(tenantId);
     countersService.nextFolio.mockResolvedValue(`COT-${year}-0082`);
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: true,
+      nombre: 'Servicio',
+      precioUnitario: 100,
+      tipo: TipoItem.SERVICIO,
+    });
+    tenantConfigService.getForRequest.mockResolvedValue({
+      vigenciaDefaultDias: 30,
+      bancarios: {},
+    });
     lastPersisted = null;
     const savedDoc = {
       _id: new Types.ObjectId(),
@@ -997,67 +1006,81 @@ describe('CotizacionesService.createAdminCotizacion — incluirImagenesPdf (Stor
     jest.spyOn(service, 'findOne').mockResolvedValue(savedDoc as any);
   });
 
-  it('omitido + producto con imagenUrl → incluirImagenesPdf true', async () => {
-    serviciosService.findOne.mockResolvedValue({
-      _id: servicioId,
-      tenantId,
-      activo: true,
-      nombre: 'Producto',
-      precioUnitario: 100,
-      tipo: TipoItem.PRODUCTO,
-      imagenUrl: `/uploads/catalogo/${tenantId}/${servicioId}.webp`,
-    });
-
+  it('omitido + sin prefs de tenant → persiste true en los tres', async () => {
     await service.createAdminCotizacion({
       items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
     } as any);
 
+    expect(lastPersisted.incluirDatosBancarios).toBe(true);
+    expect(lastPersisted.incluirDescripciones).toBe(true);
     expect(lastPersisted.incluirImagenesPdf).toBe(true);
   });
 
-  it('omitido + solo servicio → false', async () => {
-    serviciosService.findOne.mockResolvedValue({
-      _id: servicioId,
-      tenantId,
-      activo: true,
-      nombre: 'Servicio',
-      precioUnitario: 100,
-      tipo: TipoItem.SERVICIO,
+  it('omitido + prefs de tenant en false → persiste false en los tres', async () => {
+    tenantConfigService.getForRequest.mockResolvedValue({
+      vigenciaDefaultDias: 30,
+      bancarios: {},
+      defaultIncluirDatosBancarios: false,
+      defaultIncluirDescripciones: false,
+      defaultIncluirImagenesPdf: false,
     });
 
     await service.createAdminCotizacion({
       items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
     } as any);
 
+    expect(lastPersisted.incluirDatosBancarios).toBe(false);
+    expect(lastPersisted.incluirDescripciones).toBe(false);
     expect(lastPersisted.incluirImagenesPdf).toBe(false);
   });
 
-  it('omitido + producto sin imagenUrl → false', async () => {
-    serviciosService.findOne.mockResolvedValue({
-      _id: servicioId,
-      tenantId,
-      activo: true,
-      nombre: 'Producto sin imagen',
-      precioUnitario: 100,
-      tipo: TipoItem.PRODUCTO,
+  it('body explícito false con prefs de tenant en true → respeta false', async () => {
+    tenantConfigService.getForRequest.mockResolvedValue({
+      vigenciaDefaultDias: 30,
+      bancarios: {},
+      defaultIncluirDatosBancarios: true,
+      defaultIncluirDescripciones: true,
+      defaultIncluirImagenesPdf: true,
     });
 
     await service.createAdminCotizacion({
       items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
+      incluirDatosBancarios: false,
+      incluirDescripciones: false,
+      incluirImagenesPdf: false,
     } as any);
 
+    expect(lastPersisted.incluirDatosBancarios).toBe(false);
+    expect(lastPersisted.incluirDescripciones).toBe(false);
     expect(lastPersisted.incluirImagenesPdf).toBe(false);
   });
 
-  it('body null → aplica AD-26 (producto con imagen → true)', async () => {
-    serviciosService.findOne.mockResolvedValue({
-      _id: servicioId,
-      tenantId,
-      activo: true,
-      nombre: 'Producto',
-      precioUnitario: 100,
-      tipo: TipoItem.PRODUCTO,
-      imagenUrl: `/uploads/catalogo/${tenantId}/${servicioId}.webp`,
+  it('body explícito true con prefs de tenant en false → respeta true', async () => {
+    tenantConfigService.getForRequest.mockResolvedValue({
+      vigenciaDefaultDias: 30,
+      bancarios: {},
+      defaultIncluirDatosBancarios: false,
+      defaultIncluirDescripciones: false,
+      defaultIncluirImagenesPdf: false,
+    });
+
+    await service.createAdminCotizacion({
+      items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
+      incluirDatosBancarios: true,
+      incluirDescripciones: true,
+      incluirImagenesPdf: true,
+    } as any);
+
+    expect(lastPersisted.incluirDatosBancarios).toBe(true);
+    expect(lastPersisted.incluirDescripciones).toBe(true);
+    expect(lastPersisted.incluirImagenesPdf).toBe(true);
+  });
+
+  it('body null equivale a omitido → aplica prefs de tenant', async () => {
+    tenantConfigService.getForRequest.mockResolvedValue({
+      vigenciaDefaultDias: 30,
+      bancarios: {},
+      defaultIncluirImagenesPdf: false,
     });
 
     await service.createAdminCotizacion({
@@ -1065,10 +1088,10 @@ describe('CotizacionesService.createAdminCotizacion — incluirImagenesPdf (Stor
       incluirImagenesPdf: null,
     } as any);
 
-    expect(lastPersisted.incluirImagenesPdf).toBe(true);
+    expect(lastPersisted.incluirImagenesPdf).toBe(false);
   });
 
-  it('body false con producto+imagen → respeta false', async () => {
+  it('ya no depende de si algún producto de línea tiene imagenUrl (AD-26 retirado)', async () => {
     serviciosService.findOne.mockResolvedValue({
       _id: servicioId,
       tenantId,
@@ -1078,31 +1101,17 @@ describe('CotizacionesService.createAdminCotizacion — incluirImagenesPdf (Stor
       tipo: TipoItem.PRODUCTO,
       imagenUrl: `/uploads/catalogo/${tenantId}/${servicioId}.webp`,
     });
-
-    await service.createAdminCotizacion({
-      items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
-      incluirImagenesPdf: false,
-    } as any);
-
-    expect(lastPersisted.incluirImagenesPdf).toBe(false);
-  });
-
-  it('body true → true', async () => {
-    serviciosService.findOne.mockResolvedValue({
-      _id: servicioId,
-      tenantId,
-      activo: true,
-      nombre: 'Servicio',
-      precioUnitario: 100,
-      tipo: TipoItem.SERVICIO,
+    tenantConfigService.getForRequest.mockResolvedValue({
+      vigenciaDefaultDias: 30,
+      bancarios: {},
+      defaultIncluirImagenesPdf: false,
     });
 
     await service.createAdminCotizacion({
       items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
-      incluirImagenesPdf: true,
     } as any);
 
-    expect(lastPersisted.incluirImagenesPdf).toBe(true);
+    expect(lastPersisted.incluirImagenesPdf).toBe(false);
   });
 });
 
@@ -2759,6 +2768,46 @@ describe('CotizacionesService repetirCotizacion (Story 6.12)', () => {
     expect(ModelCtor.updateMany).toBeUndefined();
   });
 
+  it('ya no fuerza incluirDatosBancarios false por falta de bancarios útiles', async () => {
+    tenantConfigService.getForRequest.mockResolvedValue({
+      vigenciaDefaultDias: 15,
+      bancarios: {}, // sin datos útiles
+    });
+
+    await service.repetirCotizacion(fuenteId, { modoPrecios: 'originales' });
+
+    // fuente tenía incluirDatosBancarios: true → se copia igual, sin forzar false
+    expect(savedPayload.incluirDatosBancarios).toBe(true);
+  });
+
+  it('campos ausentes en fuente antigua → aplica default del tenant (??true)', async () => {
+    jest.spyOn(service, 'findOne').mockImplementation(async (id: string) => {
+      if (String(id) === String(fuenteId) || id === fuenteId) {
+        const { incluirDescripciones, incluirImagenesPdf, ...rest } =
+          fuenteBase() as any;
+        return rest;
+      }
+      return {
+        _id: id,
+        folio: 'COT-2026-0099',
+        estado: 'vigente',
+        items: savedPayload?.items,
+        total: savedPayload?.total,
+        magicToken: undefined,
+      } as any;
+    });
+    tenantConfigService.getForRequest.mockResolvedValue({
+      vigenciaDefaultDias: 15,
+      bancarios: { banco: 'X', clabe: '123' },
+      defaultIncluirDescripciones: false,
+    });
+
+    await service.repetirCotizacion(fuenteId, { modoPrecios: 'originales' });
+
+    expect(savedPayload.incluirDescripciones).toBe(false); // default tenant
+    expect(savedPayload.incluirImagenesPdf).toBe(true); // sin default tenant → true
+  });
+
   it('originales + servicio inactivo: OK (no 400)', async () => {
     serviciosService.findOne.mockResolvedValue({
       _id: servicioId,
@@ -3110,6 +3159,42 @@ describe('CotizacionesService previewRepetirCotizacion', () => {
     });
     expect(preview.incluirDescripciones).toBe(true);
     expect(preview.incluirImagenesPdf).toBe(true);
+  });
+
+  it('ya no fuerza incluirDatosBancarios false por falta de bancarios útiles', async () => {
+    tenantConfigService.getForRequest.mockResolvedValue({
+      vigenciaDefaultDias: 15,
+      bancarios: {}, // sin datos útiles
+    });
+
+    const preview = await service.previewRepetirCotizacion(fuenteId, {
+      modoPrecios: 'originales',
+    });
+
+    expect(preview.incluirDatosBancarios).toBe(true);
+  });
+
+  it('campos ausentes en fuente antigua → aplica default del tenant (??true)', async () => {
+    jest.spyOn(service, 'findOne').mockImplementation(async (id: string) => {
+      if (String(id) === String(fuenteId) || id === fuenteId) {
+        const { incluirDescripciones, incluirImagenesPdf, ...rest } =
+          fuenteBase() as any;
+        return rest;
+      }
+      return { _id: id } as any;
+    });
+    tenantConfigService.getForRequest.mockResolvedValue({
+      vigenciaDefaultDias: 15,
+      bancarios: { banco: 'X', clabe: '123' },
+      defaultIncluirImagenesPdf: false,
+    });
+
+    const preview = await service.previewRepetirCotizacion(fuenteId, {
+      modoPrecios: 'originales',
+    });
+
+    expect(preview.incluirDescripciones).toBe(true); // sin default tenant → true
+    expect(preview.incluirImagenesPdf).toBe(false); // default tenant
   });
 
   it('actualizados: precios del catálogo', async () => {

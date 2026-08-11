@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsEmail,
   IsInt,
   IsOptional,
@@ -99,4 +100,34 @@ export class UpdateTenantVigenciaBancariosDto {
   @ValidateNested()
   @Type(() => UpdateTenantBancariosDto)
   bancarios?: UpdateTenantBancariosDto | null;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    nullable: true,
+    description:
+      'Default "incluir datos bancarios" al crear cotización nueva. true/false configura; null limpia (vuelve a sin configurar → cotizador usa true); omitido = no tocar.',
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'defaultIncluirDatosBancarios debe ser boolean o null' })
+  defaultIncluirDatosBancarios?: boolean | null;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    nullable: true,
+    description:
+      'Default "incluir descripciones" al crear cotización nueva. true/false configura; null limpia (sin configurar → cotizador usa true); omitido = no tocar.',
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'defaultIncluirDescripciones debe ser boolean o null' })
+  defaultIncluirDescripciones?: boolean | null;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    nullable: true,
+    description:
+      'Default "incluir imágenes de producto en PDF" al crear cotización nueva. true/false configura; null limpia (sin configurar → cotizador usa true); omitido = no tocar.',
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'defaultIncluirImagenesPdf debe ser boolean o null' })
+  defaultIncluirImagenesPdf?: boolean | null;
 }

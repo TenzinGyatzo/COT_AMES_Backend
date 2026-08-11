@@ -37,7 +37,6 @@ import { TenantContextService } from '../tenants/tenant-context.service';
 import { TenantConfigService } from '../tenants/tenant-config.service';
 import { TenantsService } from '../tenants/tenants.service';
 import { TenantSecretsKeyError } from '../tenants/tenant-secrets.crypto';
-import { hasBancariosUtiles } from '../tenants/bancarios.util';
 import { TenantEmailNotConfiguredError } from '../emails/tenant-email-not-configured.error';
 import { TenantInactiveForOutboundError } from '../emails/tenant-inactive-for-outbound.error';
 import { CountersService } from '../counters/counters.service';
@@ -137,17 +136,20 @@ export class CotizacionesService {
     this.applyTipoCodigoSnapshotsFromServicio(item, servicio);
   }
 
+  /** Solo boolean estricto cuenta como elección explícita del cliente (null/omitido → sin elegir). */
+  private normalizeClienteFlag(value: unknown): boolean | undefined {
+    return typeof value === 'boolean' ? value : undefined;
+  }
+
   /**
-   * Story 8.2 / AD-26 — default al omitir el flag en create.
-   * Si el cliente envía boolean → se respeta; si no → true iff producto con imagenUrl.
+   * Preferencias opcionales de tenant para defaults de cotización nueva.
+   * Boolean explícito del cliente > default configurado del tenant > true.
    */
-  private resolveIncluirImagenesPdf(
-    dtoFlag: boolean | undefined | null,
-    hasProductoConImagen: boolean,
+  private resolveDisplayFlag(
+    dtoFlag: boolean | undefined,
+    tenantDefault: boolean | null | undefined,
   ): boolean {
-    // Solo boolean estricto cuenta como elección del cliente (null/omitido → AD-26).
-    if (typeof dtoFlag === 'boolean') return dtoFlag;
-    return hasProductoConImagen;
+    return dtoFlag !== undefined ? dtoFlag === true : (tenantDefault ?? true);
   }
 
   private async buildItems(
@@ -162,11 +164,9 @@ export class CotizacionesService {
   ): Promise<{
     items: ItemCotizacion[];
     total: number;
-    hasProductoConImagen: boolean;
   }> {
     const items: ItemCotizacion[] = [];
     let total = 0;
-    let hasProductoConImagen = false;
     for (const itemDto of itemsDto) {
       const servicio = await this.serviciosService.findOne(itemDto.servicioId);
       const servicioDoc = servicio as any;
@@ -182,14 +182,6 @@ export class CotizacionesService {
         throw new BadRequestException(
           'No se puede crear una cotización con un servicio inactivo',
         );
-      }
-
-      if (
-        servicioDoc.tipo === TipoItem.PRODUCTO &&
-        typeof servicioDoc.imagenUrl === 'string' &&
-        servicioDoc.imagenUrl.trim()
-      ) {
-        hasProductoConImagen = true;
       }
 
       const nombreOverride = itemDto.nombre?.trim();
@@ -227,7 +219,7 @@ export class CotizacionesService {
 
       items.push(item);
     }
-    return { items, total, hasProductoConImagen };
+    return { items, total };
   }
 
   /**
@@ -466,10 +458,7 @@ export class CotizacionesService {
       );
     }
 
-    const { items, total, hasProductoConImagen } = await this.buildItems(
-      dto.items,
-      tenantId,
-    );
+    const { items, total } = await this.buildItems(dto.items, tenantId);
     const plantillasSnapshot = await this.buildPlantillasSnapshot(
       dto.plantillas,
       tenantId,
@@ -480,17 +469,32 @@ export class CotizacionesService {
         sinVigencia: !!dto.sinVigencia,
       });
 
-    let incluirDatosBancarios = !!dto.incluirDatosBancarios;
-    if (incluirDatosBancarios) {
-      try {
-        const cfg = await this.tenantConfigService.getForRequest();
-        if (!hasBancariosUtiles(cfg?.bancarios)) {
-          incluirDatosBancarios = false;
+    let tenantCfg:
+      | {
+          defaultIncluirDatosBancarios?: boolean | null;
+          defaultIncluirDescripciones?: boolean | null;
+          defaultIncluirImagenesPdf?: boolean | null;
         }
-      } catch {
-        incluirDatosBancarios = false;
-      }
+      | undefined;
+    try {
+      tenantCfg = await this.tenantConfigService.getForRequest();
+    } catch (cfgErr) {
+      this.logger.warn(
+        `No se pudieron leer defaults de cotización del tenant; se usará true: ${cfgErr}`,
+      );
     }
+    const incluirDatosBancarios = this.resolveDisplayFlag(
+      this.normalizeClienteFlag(dto.incluirDatosBancarios),
+      tenantCfg?.defaultIncluirDatosBancarios,
+    );
+    const incluirDescripciones = this.resolveDisplayFlag(
+      this.normalizeClienteFlag(dto.incluirDescripciones),
+      tenantCfg?.defaultIncluirDescripciones,
+    );
+    const incluirImagenesPdf = this.resolveDisplayFlag(
+      this.normalizeClienteFlag(dto.incluirImagenesPdf),
+      tenantCfg?.defaultIncluirImagenesPdf,
+    );
 
     const emailsPara = this.normalizeEmailList(dto.emailsPara);
     const emailsCc = this.normalizeEmailList(dto.emailsCc).filter(
@@ -512,11 +516,8 @@ export class CotizacionesService {
       estado,
       sinVigencia,
       incluirDatosBancarios,
-      incluirDescripciones: dto.incluirDescripciones === true,
-      incluirImagenesPdf: this.resolveIncluirImagenesPdf(
-        dto.incluirImagenesPdf,
-        hasProductoConImagen,
-      ),
+      incluirDescripciones,
+      incluirImagenesPdf,
       plantillasSnapshot,
       emailsPara,
       emailsCc,
@@ -827,19 +828,60 @@ export class CotizacionesService {
     return undefined;
   }
 
-  private async resolveRepetirIncluirBancarios(fuente: any): Promise<boolean> {
-    let incluirDatosBancarios = !!fuente.incluirDatosBancarios;
-    if (incluirDatosBancarios) {
-      try {
-        const cfg = await this.tenantConfigService.getForRequest();
-        if (!hasBancariosUtiles(cfg?.bancarios)) {
-          incluirDatosBancarios = false;
+  /**
+   * Preferencias opcionales de tenant (repetir/preview): copia el flag de la fuente
+   * si está definido; si la fuente no lo tiene (cotización antigua), aplica el
+   * default del tenant (?? true) — igual que en create.
+   */
+  private async resolveRepetirDisplayFlags(fuente: any): Promise<{
+    incluirDatosBancarios: boolean;
+    incluirDescripciones: boolean;
+    incluirImagenesPdf: boolean;
+  }> {
+    let tenantCfg:
+      | {
+          defaultIncluirDatosBancarios?: boolean | null;
+          defaultIncluirDescripciones?: boolean | null;
+          defaultIncluirImagenesPdf?: boolean | null;
         }
-      } catch {
-        incluirDatosBancarios = false;
-      }
+      | undefined;
+    try {
+      tenantCfg = await this.tenantConfigService.getForRequest();
+    } catch (cfgErr) {
+      this.logger.warn(
+        `No se pudieron leer defaults de cotización del tenant al repetir; se usará true: ${cfgErr}`,
+      );
     }
-    return incluirDatosBancarios;
+    const fromFuente = (
+      value: unknown,
+      tenantDefault: boolean | null | undefined,
+    ) =>
+      this.resolveDisplayFlag(
+        this.normalizeClienteFlag(value),
+        tenantDefault,
+      );
+    // Leer del _doc / hasOwnProperty para no confundir ausencia con default mongoose.
+    const stored = (key: string): boolean | undefined => {
+      const raw = (fuente as any)?._doc ?? fuente;
+      if (!raw || !Object.prototype.hasOwnProperty.call(raw, key)) {
+        return undefined;
+      }
+      return this.normalizeClienteFlag(raw[key]);
+    };
+    return {
+      incluirDatosBancarios: fromFuente(
+        stored('incluirDatosBancarios'),
+        tenantCfg?.defaultIncluirDatosBancarios,
+      ),
+      incluirDescripciones: fromFuente(
+        stored('incluirDescripciones'),
+        tenantCfg?.defaultIncluirDescripciones,
+      ),
+      incluirImagenesPdf: fromFuente(
+        stored('incluirImagenesPdf'),
+        tenantCfg?.defaultIncluirImagenesPdf,
+      ),
+    };
   }
 
   private buildRepetirPreviewDto(
@@ -847,7 +889,11 @@ export class CotizacionesService {
     dto: RepetirCotizacionDto,
     items: ItemCotizacion[],
     clienteId?: Types.ObjectId,
-    incluirDatosBancarios?: boolean,
+    flags?: {
+      incluirDatosBancarios: boolean;
+      incluirDescripciones: boolean;
+      incluirImagenesPdf: boolean;
+    },
   ): RepetirCotizacionPreviewDto {
     const sinVigencia =
       dto.sinVigencia !== undefined ? !!dto.sinVigencia : !!fuente.sinVigencia;
@@ -875,9 +921,9 @@ export class CotizacionesService {
       emailsPara,
       emailsCc,
       sinVigencia,
-      incluirDatosBancarios: incluirDatosBancarios ?? false,
-      incluirDescripciones: fuente.incluirDescripciones === true,
-      incluirImagenesPdf: fuente.incluirImagenesPdf === true,
+      incluirDatosBancarios: flags?.incluirDatosBancarios ?? true,
+      incluirDescripciones: flags?.incluirDescripciones ?? true,
+      incluirImagenesPdf: flags?.incluirImagenesPdf ?? true,
       plantillas: plantillasSnapshot.map((p) => ({
         plantillaId: this.refId(p.plantillaId) || String(p.plantillaId),
         nombre: p.nombreSnapshot,
@@ -938,18 +984,12 @@ export class CotizacionesService {
       );
     }
 
-    const [clienteId, incluirDatosBancarios] = await Promise.all([
+    const [clienteId, flags] = await Promise.all([
       this.resolveRepetirClienteId(fuente, tenantId),
-      this.resolveRepetirIncluirBancarios(fuente),
+      this.resolveRepetirDisplayFlags(fuente),
     ]);
 
-    return this.buildRepetirPreviewDto(
-      fuente,
-      dto,
-      items,
-      clienteId,
-      incluirDatosBancarios,
-    );
+    return this.buildRepetirPreviewDto(fuente, dto, items, clienteId, flags);
   }
 
   async repetirCotizacion(
@@ -977,9 +1017,10 @@ export class CotizacionesService {
       );
     }
 
-    const clienteId = await this.resolveRepetirClienteId(fuente, tenantId);
-    const incluirDatosBancarios =
-      await this.resolveRepetirIncluirBancarios(fuente);
+    const [clienteId, flags] = await Promise.all([
+      this.resolveRepetirClienteId(fuente, tenantId),
+      this.resolveRepetirDisplayFlags(fuente),
+    ]);
 
     const plantillasSnapshot: PlantillaSnapshot[] = JSON.parse(
       JSON.stringify(fuente.plantillasSnapshot || []),
@@ -1008,9 +1049,9 @@ export class CotizacionesService {
       fechaCreacion,
       estado,
       sinVigencia,
-      incluirDatosBancarios,
-      incluirDescripciones: fuente.incluirDescripciones === true,
-      incluirImagenesPdf: fuente.incluirImagenesPdf === true,
+      incluirDatosBancarios: flags.incluirDatosBancarios,
+      incluirDescripciones: flags.incluirDescripciones,
+      incluirImagenesPdf: flags.incluirImagenesPdf,
       plantillasSnapshot,
       emailsPara,
       emailsCc,

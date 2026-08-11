@@ -191,18 +191,19 @@ export class Cotizacion {
   @Prop({ required: false })
   creadoPorEmail?: string;
 
-  @Prop({ default: false })
+  /**
+   * Sin default mongoose: ausente ≠ false (fallback create/repetir = tenant ?? true).
+   * El service siempre escribe boolean explícito al crear.
+   */
+  @Prop({ type: Boolean, required: false })
   incluirDatosBancarios?: boolean;
 
-  /** Si false, el PDF omite la columna de descripción (default false). */
-  @Prop({ default: false })
+  /** Si false, el PDF omite la columna de descripción. */
+  @Prop({ type: Boolean, required: false })
   incluirDescripciones?: boolean;
 
-  /**
-   * Story 8.2 / AD-26 — si true, el PDF puede incluir imágenes de producto (render en 8.3).
-   * Default mongoose false; al create omitido → default AD-26 en service.
-   */
-  @Prop({ default: false })
+  /** Si true, el PDF puede incluir imágenes de producto. */
+  @Prop({ type: Boolean, required: false })
   incluirImagenesPdf?: boolean;
 
   /** Plantillas aplicadas (deep copy). Vacío/omitido = sin páginas de plantilla. */

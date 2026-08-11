@@ -401,6 +401,31 @@ export class TenantConfigService {
       $set.vigenciaDefaultDias = dto.vigenciaDefaultDias;
     }
 
+    /** boolean|null: false es un valor válido (≠ limpiar); solo null limpia/ausenta. */
+    const applyBooleanField = (
+      path: string,
+      value: boolean | null | undefined,
+    ) => {
+      if (value === undefined) return;
+      if (value === null) {
+        $unset[path] = 1;
+      } else {
+        $set[path] = value;
+      }
+    };
+    applyBooleanField(
+      'defaultIncluirDatosBancarios',
+      dto.defaultIncluirDatosBancarios,
+    );
+    applyBooleanField(
+      'defaultIncluirDescripciones',
+      dto.defaultIncluirDescripciones,
+    );
+    applyBooleanField(
+      'defaultIncluirImagenesPdf',
+      dto.defaultIncluirImagenesPdf,
+    );
+
     if (dto.bancarios === null) {
       $unset.bancarios = 1;
       // Logo banco solo vive en upload dedicado; al wipe del subdoc limpiar disco
@@ -590,6 +615,19 @@ export class TenantConfigService {
         rfc: bancarios.rfc || undefined,
         email: bancarios.email || undefined,
       },
+      // boolean|undefined: ausencia ≠ false (cotizador aplica tenantDefault ?? true).
+      defaultIncluirDatosBancarios:
+        typeof obj.defaultIncluirDatosBancarios === 'boolean'
+          ? obj.defaultIncluirDatosBancarios
+          : undefined,
+      defaultIncluirDescripciones:
+        typeof obj.defaultIncluirDescripciones === 'boolean'
+          ? obj.defaultIncluirDescripciones
+          : undefined,
+      defaultIncluirImagenesPdf:
+        typeof obj.defaultIncluirImagenesPdf === 'boolean'
+          ? obj.defaultIncluirImagenesPdf
+          : undefined,
       createdAt: obj.createdAt
         ? new Date(obj.createdAt).toISOString()
         : undefined,

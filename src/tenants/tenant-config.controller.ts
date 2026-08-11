@@ -122,7 +122,8 @@ export class TenantConfigController {
   @ApiOperation({
     summary: 'Actualizar vigencia default y datos bancarios del tenant activo',
     description:
-      'Partial update. admin_tenant | admin_sistema (FR42). String vacío limpia subcampo bancario.',
+      'Partial update. admin_tenant | admin_sistema (FR42). String vacío limpia subcampo bancario. ' +
+      'defaultIncluirDatosBancarios/Descripciones/ImagenesPdf: true/false configura el default de la cotización nueva; null limpia (vuelve a sin configurar); omitido = no tocar.',
   })
   @ApiBody({ type: UpdateTenantVigenciaBancariosDto })
   @ApiResponse({ status: 200, type: TenantConfigResponseDto })

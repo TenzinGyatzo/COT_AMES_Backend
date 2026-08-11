@@ -107,6 +107,30 @@ export class TenantConfigResponseDto {
   })
   bancarios?: TenantBancariosDto;
 
+  @ApiPropertyOptional({
+    type: Boolean,
+    nullable: true,
+    description:
+      'Default "incluir datos bancarios" al crear cotización nueva. Ausente = sin configurar (el cotizador usa true).',
+  })
+  defaultIncluirDatosBancarios?: boolean | null;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    nullable: true,
+    description:
+      'Default "incluir descripciones" al crear cotización nueva. Ausente = sin configurar (el cotizador usa true).',
+  })
+  defaultIncluirDescripciones?: boolean | null;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    nullable: true,
+    description:
+      'Default "incluir imágenes de producto en PDF" al crear cotización nueva. Ausente = sin configurar (el cotizador usa true).',
+  })
+  defaultIncluirImagenesPdf?: boolean | null;
+
   @ApiPropertyOptional()
   createdAt?: string;
 

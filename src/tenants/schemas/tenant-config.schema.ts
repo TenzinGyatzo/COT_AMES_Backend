@@ -100,6 +100,19 @@ export class TenantConfig {
   /** Contenido de página bancaria PDF (toggle por cotización, no global). */
   @Prop({ type: TenantBancariosSchema, default: () => ({}) })
   bancarios?: TenantBancarios;
+
+  /**
+   * Defaults opcionales de display al crear cotización nueva sin elegir explícito
+   * (ausente ≠ false: el cotizador aplica `tenantDefault ?? true`).
+   */
+  @Prop({ type: Boolean, required: false, default: undefined })
+  defaultIncluirDatosBancarios?: boolean | null;
+
+  @Prop({ type: Boolean, required: false, default: undefined })
+  defaultIncluirDescripciones?: boolean | null;
+
+  @Prop({ type: Boolean, required: false, default: undefined })
+  defaultIncluirImagenesPdf?: boolean | null;
 }
 
 export const TenantConfigSchema = SchemaFactory.createForClass(TenantConfig);
