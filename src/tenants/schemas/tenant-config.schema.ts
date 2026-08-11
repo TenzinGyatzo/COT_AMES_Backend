@@ -113,6 +113,9 @@ export class TenantConfig {
 
   @Prop({ type: Boolean, required: false, default: undefined })
   defaultIncluirImagenesPdf?: boolean | null;
+
+  @Prop({ type: Boolean, required: false, default: undefined })
+  defaultUsarVigencia?: boolean | null;
 }
 
 export const TenantConfigSchema = SchemaFactory.createForClass(TenantConfig);

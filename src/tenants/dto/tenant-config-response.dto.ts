@@ -131,6 +131,14 @@ export class TenantConfigResponseDto {
   })
   defaultIncluirImagenesPdf?: boolean | null;
 
+  @ApiPropertyOptional({
+    type: Boolean,
+    nullable: true,
+    description:
+      'Default "usar vigencia" al crear cotización nueva. Ausente = sin configurar (el cotizador usa true → sinVigencia false).',
+  })
+  defaultUsarVigencia?: boolean | null;
+
   @ApiPropertyOptional()
   createdAt?: string;
 

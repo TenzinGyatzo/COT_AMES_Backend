@@ -425,6 +425,7 @@ export class TenantConfigService {
       'defaultIncluirImagenesPdf',
       dto.defaultIncluirImagenesPdf,
     );
+    applyBooleanField('defaultUsarVigencia', dto.defaultUsarVigencia);
 
     if (dto.bancarios === null) {
       $unset.bancarios = 1;
@@ -627,6 +628,10 @@ export class TenantConfigService {
       defaultIncluirImagenesPdf:
         typeof obj.defaultIncluirImagenesPdf === 'boolean'
           ? obj.defaultIncluirImagenesPdf
+          : undefined,
+      defaultUsarVigencia:
+        typeof obj.defaultUsarVigencia === 'boolean'
+          ? obj.defaultUsarVigencia
           : undefined,
       createdAt: obj.createdAt
         ? new Date(obj.createdAt).toISOString()

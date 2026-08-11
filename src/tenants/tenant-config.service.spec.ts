@@ -636,10 +636,12 @@ describe('TenantConfigService (Stories 2.1–2.5 + 3.2)', () => {
       defaultIncluirDatosBancarios: true,
       defaultIncluirDescripciones: false,
       defaultIncluirImagenesPdf: true,
+      defaultUsarVigencia: false,
     } as any);
     expect(updated.defaultIncluirDatosBancarios).toBe(true);
     expect(updated.defaultIncluirDescripciones).toBe(false);
     expect(updated.defaultIncluirImagenesPdf).toBe(true);
+    expect(updated.defaultUsarVigencia).toBe(false);
   });
 
   it('updateVigenciaBancarios con null ausenta los defaults (vuelve a "sin configurar")', async () => {
@@ -648,26 +650,31 @@ describe('TenantConfigService (Stories 2.1–2.5 + 3.2)', () => {
       defaultIncluirDatosBancarios: true,
       defaultIncluirDescripciones: false,
       defaultIncluirImagenesPdf: true,
+      defaultUsarVigencia: false,
     });
     const updated = await service.updateVigenciaBancarios({
       defaultIncluirDatosBancarios: null,
       defaultIncluirDescripciones: null,
       defaultIncluirImagenesPdf: null,
+      defaultUsarVigencia: null,
     } as any);
     expect(updated.defaultIncluirDatosBancarios).toBeUndefined();
     expect(updated.defaultIncluirDescripciones).toBeUndefined();
     expect(updated.defaultIncluirImagenesPdf).toBeUndefined();
+    expect(updated.defaultUsarVigencia).toBeUndefined();
   });
 
   it('updateVigenciaBancarios omitido no toca los defaults existentes', async () => {
     store.set(String(tenantId), {
       ...makeDoc(tenantId),
       defaultIncluirDatosBancarios: true,
+      defaultUsarVigencia: false,
     });
     const updated = await service.updateVigenciaBancarios({
       vigenciaDefaultDias: 45,
     });
     expect(updated.defaultIncluirDatosBancarios).toBe(true);
+    expect(updated.defaultUsarVigencia).toBe(false);
     expect(updated.vigenciaDefaultDias).toBe(45);
   });
 
@@ -677,6 +684,7 @@ describe('TenantConfigService (Stories 2.1–2.5 + 3.2)', () => {
     expect(res.defaultIncluirDatosBancarios).toBeUndefined();
     expect(res.defaultIncluirDescripciones).toBeUndefined();
     expect(res.defaultIncluirImagenesPdf).toBeUndefined();
+    expect(res.defaultUsarVigencia).toBeUndefined();
   });
 
   it('toResponse incluye defaults de cotización true/false explícitos', () => {
@@ -685,11 +693,13 @@ describe('TenantConfigService (Stories 2.1–2.5 + 3.2)', () => {
       defaultIncluirDatosBancarios: false,
       defaultIncluirDescripciones: true,
       defaultIncluirImagenesPdf: false,
+      defaultUsarVigencia: true,
     } as any;
     const res = service.toResponse(doc);
     expect(res.defaultIncluirDatosBancarios).toBe(false);
     expect(res.defaultIncluirDescripciones).toBe(true);
     expect(res.defaultIncluirImagenesPdf).toBe(false);
+    expect(res.defaultUsarVigencia).toBe(true);
   });
 
   it('toResponseAsync incluye tenantNombre y tenantClave del Tenant efectivo', async () => {

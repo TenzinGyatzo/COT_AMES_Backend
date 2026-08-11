@@ -130,4 +130,14 @@ export class UpdateTenantVigenciaBancariosDto {
   @IsOptional()
   @IsBoolean({ message: 'defaultIncluirImagenesPdf debe ser boolean o null' })
   defaultIncluirImagenesPdf?: boolean | null;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    nullable: true,
+    description:
+      'Default "usar vigencia" al crear cotización nueva. true/false configura; null limpia (sin configurar → cotizador usa true → sinVigencia false); omitido = no tocar.',
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'defaultUsarVigencia debe ser boolean o null' })
+  defaultUsarVigencia?: boolean | null;
 }

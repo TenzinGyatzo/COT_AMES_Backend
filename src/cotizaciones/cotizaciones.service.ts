@@ -465,16 +465,13 @@ export class CotizacionesService {
       tenantId,
     );
     const folio = await this.generateFolio(tenantId);
-    const { fechaCreacion, fechaVencimiento, sinVigencia, estado } =
-      await this.resolveVencimiento(dto.fechaVencimiento, {
-        sinVigencia: !!dto.sinVigencia,
-      });
 
     let tenantCfg:
       | {
           defaultIncluirDatosBancarios?: boolean | null;
           defaultIncluirDescripciones?: boolean | null;
           defaultIncluirImagenesPdf?: boolean | null;
+          defaultUsarVigencia?: boolean | null;
         }
       | undefined;
     try {
@@ -484,6 +481,17 @@ export class CotizacionesService {
         `No se pudieron leer defaults de cotización del tenant; se usará true: ${cfgErr}`,
       );
     }
+    // Omit: fecha explícita implica usar vigencia; si no, preferencia tenant ?? true.
+    const sinVigenciaResolved =
+      dto.sinVigencia !== undefined
+        ? !!dto.sinVigencia
+        : dto.fechaVencimiento
+          ? false
+          : !(tenantCfg?.defaultUsarVigencia ?? true);
+    const { fechaCreacion, fechaVencimiento, sinVigencia, estado } =
+      await this.resolveVencimiento(dto.fechaVencimiento, {
+        sinVigencia: sinVigenciaResolved,
+      });
     const incluirDatosBancarios = this.resolveDisplayFlag(
       this.normalizeClienteFlag(dto.incluirDatosBancarios),
       tenantCfg?.defaultIncluirDatosBancarios,

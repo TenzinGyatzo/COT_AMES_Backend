@@ -234,9 +234,8 @@ export class CreateCotizacionAdminDto {
 
   @ApiPropertyOptional({
     description:
-      'Si true, la cotización no tiene vigencia (no cron a vencida; PDF Vencimiento —). Mutuamente excluyente con fechaVencimiento. Story 6.15',
+      'Si true, la cotización no tiene vigencia (no cron a vencida; PDF Vencimiento —). Mutuamente excluyente con fechaVencimiento. Omitido → `!(tenant.defaultUsarVigencia ?? true)`. Story 6.15',
     example: false,
-    default: false,
   })
   @IsOptional()
   @IsBoolean()

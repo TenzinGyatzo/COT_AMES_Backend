@@ -1115,6 +1115,140 @@ describe('CotizacionesService.createAdminCotizacion — defaults de tenant para 
   });
 });
 
+describe('CotizacionesService.createAdminCotizacion — defaultUsarVigencia → sinVigencia', () => {
+  const tenantId = new Types.ObjectId();
+  const servicioId = new Types.ObjectId();
+  const year = new Date().getFullYear();
+
+  const serviciosService = { findOne: jest.fn() };
+  const tenantContext = {
+    getTenantId: jest.fn().mockReturnValue(tenantId),
+  };
+  const tenantConfigService = {
+    getForRequest: jest.fn(),
+  };
+  const countersService = {
+    nextFolio: jest.fn().mockResolvedValue(`COT-${year}-0083`),
+  };
+
+  let service: CotizacionesService;
+  let ModelCtor: jest.Mock;
+  let lastPersisted: any;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (tenantContext.getTenantId as jest.Mock).mockReturnValue(tenantId);
+    countersService.nextFolio.mockResolvedValue(`COT-${year}-0083`);
+    serviciosService.findOne.mockResolvedValue({
+      _id: servicioId,
+      tenantId,
+      activo: true,
+      nombre: 'Servicio',
+      precioUnitario: 100,
+      tipo: TipoItem.SERVICIO,
+    });
+    tenantConfigService.getForRequest.mockResolvedValue({
+      vigenciaDefaultDias: 30,
+      bancarios: {},
+    });
+    lastPersisted = null;
+    const savedDoc = {
+      _id: new Types.ObjectId(),
+      folio: `COT-${year}-0083`,
+    };
+    ModelCtor = jest.fn().mockImplementation((data: any) => {
+      lastPersisted = data;
+      return {
+        ...data,
+        save: jest.fn().mockResolvedValue({ ...savedDoc, ...data }),
+      };
+    });
+    service = new CotizacionesService(
+      ModelCtor as any,
+      {} as any,
+      serviciosService as any,
+      {} as any,
+      tenantContext as any,
+      tenantConfigService as any,
+      countersService as any,
+      {
+        findOne: jest.fn(),
+        assertSeccionesValidas: jest.fn((s: unknown) => s),
+        update: jest.fn(),
+      } as any,
+      {} as any,
+      { findById: jest.fn().mockResolvedValue({ activo: true }) } as any,
+    );
+    jest.spyOn(service, 'findOne').mockResolvedValue(savedDoc as any);
+  });
+
+  it('omitido + pref ausente → sinVigencia false (usa vigencia)', async () => {
+    await service.createAdminCotizacion({
+      items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
+    } as any);
+
+    expect(lastPersisted.sinVigencia).toBe(false);
+  });
+
+  it('omitido + defaultUsarVigencia true → sinVigencia false', async () => {
+    tenantConfigService.getForRequest.mockResolvedValue({
+      vigenciaDefaultDias: 30,
+      bancarios: {},
+      defaultUsarVigencia: true,
+    });
+
+    await service.createAdminCotizacion({
+      items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
+    } as any);
+
+    expect(lastPersisted.sinVigencia).toBe(false);
+  });
+
+  it('omitido + defaultUsarVigencia false → sinVigencia true', async () => {
+    tenantConfigService.getForRequest.mockResolvedValue({
+      vigenciaDefaultDias: 30,
+      bancarios: {},
+      defaultUsarVigencia: false,
+    });
+
+    await service.createAdminCotizacion({
+      items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
+    } as any);
+
+    expect(lastPersisted.sinVigencia).toBe(true);
+  });
+
+  it('body explícito false con pref false → respeta false (usa vigencia)', async () => {
+    tenantConfigService.getForRequest.mockResolvedValue({
+      vigenciaDefaultDias: 30,
+      bancarios: {},
+      defaultUsarVigencia: false,
+    });
+
+    await service.createAdminCotizacion({
+      items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
+      sinVigencia: false,
+    } as any);
+
+    expect(lastPersisted.sinVigencia).toBe(false);
+  });
+
+  it('body explícito true con pref true → respeta true', async () => {
+    tenantConfigService.getForRequest.mockResolvedValue({
+      vigenciaDefaultDias: 30,
+      bancarios: {},
+      defaultUsarVigencia: true,
+    });
+
+    await service.createAdminCotizacion({
+      items: [{ servicioId: servicioId.toString(), cantidad: 1 }],
+      sinVigencia: true,
+    } as any);
+
+    expect(lastPersisted.sinVigencia).toBe(true);
+  });
+});
+
 describe('CotizacionesService.createAdminCotizacion — destinatarios (Story 6.6)', () => {
   const tenantId = new Types.ObjectId();
   const servicioId = new Types.ObjectId();
