@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Types } from 'mongoose';
-import { TenantsService, INITIAL_TENANTS } from './tenants.service';
+import { TenantsService } from './tenants.service';
 import { Tenant } from './schemas/tenant.schema';
 import { TenantConfigService } from './tenant-config.service';
 import { UsersService } from '../users/users.service';
@@ -145,27 +145,6 @@ describe('TenantsService', () => {
     }).compile();
 
     service = module.get(TenantsService);
-  });
-
-  it('ensureSeeded es idempotente (2 llamadas → mismos 2 tenants)', async () => {
-    const first = await service.ensureSeeded();
-    const second = await service.ensureSeeded();
-
-    expect(first).toHaveLength(INITIAL_TENANTS.length);
-    expect(second).toHaveLength(INITIAL_TENANTS.length);
-    expect(store.size).toBe(2);
-    expect([...store.keys()].sort()).toEqual(['los-mochis', 'queretaro']);
-  });
-
-  it('ensureSeeded no reactiva seed ya suspendido (Story 4.3)', async () => {
-    await service.ensureSeeded();
-    const qro = store.get('queretaro');
-    qro.activo = false;
-
-    const again = await service.ensureSeeded();
-    const updated = again.find((t: any) => t.clave === 'queretaro');
-    expect(updated?.activo).toBe(false);
-    expect(store.get('queretaro').activo).toBe(false);
   });
 
   describe('setActivo (Story 4.3)', () => {

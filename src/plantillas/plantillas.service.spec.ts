@@ -1,7 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { PlantillasService } from './plantillas.service';
-import { TenantsService } from '../tenants/tenants.service';
 import { TenantContextService } from '../tenants/tenant-context.service';
 import {
   CLAVE_SEED_ADMINISTRATIVOS,
@@ -11,7 +10,6 @@ import {
 
 describe('PlantillasService (Story 5.1 + 5.2)', () => {
   const tenantQro = { _id: new Types.ObjectId(), clave: 'queretaro' };
-  const tenantLm = { _id: new Types.ObjectId(), clave: 'los-mochis' };
   const otherTenantId = new Types.ObjectId();
 
   /** key = `${tenantId}:${claveSeed}` for seeds; also by _id for CRUD */
@@ -150,19 +148,11 @@ describe('PlantillasService (Story 5.1 + 5.2)', () => {
     },
   }));
 
-  const tenantsService = {
-    ensureSeeded: jest.fn().mockResolvedValue([tenantQro, tenantLm]),
-  } as unknown as TenantsService;
-
   const tenantContext = {
     getTenantId: jest.fn().mockReturnValue(tenantQro._id),
   } as unknown as TenantContextService;
 
-  const service = new PlantillasService(
-    plantillaModel,
-    tenantsService,
-    tenantContext,
-  );
+  const service = new PlantillasService(plantillaModel, tenantContext);
 
   const seccionOk = {
     id: 's1',
@@ -175,30 +165,23 @@ describe('PlantillasService (Story 5.1 + 5.2)', () => {
     byId.clear();
     jest.clearAllMocks();
     mockSeedUpsert();
-    (tenantsService.ensureSeeded as jest.Mock).mockResolvedValue([
-      tenantQro,
-      tenantLm,
-    ]);
     (tenantContext.getTenantId as jest.Mock).mockReturnValue(tenantQro._id);
     plantillaModel.mockClear();
   });
 
-  it('ensureSeededForAllTenants crea 2 seeds por tenant', async () => {
-    const docs = await service.ensureSeededForAllTenants();
-
-    expect(tenantsService.ensureSeeded).toHaveBeenCalled();
-    expect(docs).toHaveLength(4);
-    expect(store.size).toBe(4);
+  it('ensureSeededForTenant (Story 4.1) siembra plantillas del tenant', async () => {
+    const docs = await service.ensureSeededForTenant(tenantQro._id);
+    expect(docs).toHaveLength(PLANTILLAS_SEED.length);
+    expect(store.size).toBe(2);
 
     const nombres = [...store.values()].map((d) => d.nombre).sort();
     expect(nombres).toEqual([
       'Requerimientos Administrativos',
-      'Requerimientos Administrativos',
-      'Requerimientos Comerciales',
       'Requerimientos Comerciales',
     ]);
 
     for (const d of store.values()) {
+      expect(String(d.tenantId)).toBe(String(tenantQro._id));
       expect(d.schemaVersion).toBe(1);
       expect(d.activo).not.toBe(false);
       expect(d.isSystem).toBeUndefined();
@@ -209,20 +192,6 @@ describe('PlantillasService (Story 5.1 + 5.2)', () => {
     }
   });
 
-  it('ensureSeededForAllTenants es idempotente (2ª llamada no duplica)', async () => {
-    const first = await service.ensureSeededForAllTenants();
-    const ids1 = first.map((d: any) => d._id.toString()).sort();
-
-    const second = await service.ensureSeededForAllTenants();
-    const ids2 = second.map((d: any) => d._id.toString()).sort();
-
-    expect(store.size).toBe(4);
-    expect(ids2).toEqual(ids1);
-    expect(plantillaModel.findOneAndUpdate).toHaveBeenCalledTimes(
-      2 * PLANTILLAS_SEED.length * 2,
-    );
-  });
-
   it('ensureSeededForTenant (Story 4.1) siembra tenant fuera de INITIAL_TENANTS', async () => {
     const docs = await service.ensureSeededForTenant(otherTenantId);
     expect(docs).toHaveLength(PLANTILLAS_SEED.length);
@@ -230,7 +199,6 @@ describe('PlantillasService (Story 5.1 + 5.2)', () => {
     for (const d of docs) {
       expect(String((d as any).tenantId)).toBe(String(otherTenantId));
     }
-    expect(tenantsService.ensureSeeded).not.toHaveBeenCalled();
   });
 
   it('ensureSeededForTenant es idempotente', async () => {
@@ -286,7 +254,7 @@ describe('PlantillasService (Story 5.1 + 5.2)', () => {
   });
 
   it('re-seed no pisa secciones ni activo editados', async () => {
-    await service.ensureSeededForAllTenants();
+    await service.ensureSeededForTenant(tenantQro._id);
     const key = storeKey(tenantQro._id, CLAVE_SEED_COMERCIALES);
     const doc = store.get(key);
     doc.activo = false;
@@ -299,7 +267,7 @@ describe('PlantillasService (Story 5.1 + 5.2)', () => {
     ];
     doc.nombre = 'Nombre editado';
 
-    await service.ensureSeededForAllTenants();
+    await service.ensureSeededForTenant(tenantQro._id);
 
     const after = store.get(key);
     expect(after.activo).toBe(false);
@@ -398,7 +366,7 @@ describe('PlantillasService (Story 5.1 + 5.2)', () => {
   });
 
   it('update acepta cuerpo.doc TipTap y rechaza doc inválido', async () => {
-    await service.ensureSeededForAllTenants();
+    await service.ensureSeededForTenant(tenantQro._id);
     const key = storeKey(tenantQro._id, CLAVE_SEED_COMERCIALES);
     const seeded = store.get(key);
     const docOk = {
@@ -479,7 +447,7 @@ describe('PlantillasService (Story 5.1 + 5.2)', () => {
   });
 
   it('findAll pagina y filtra por tenant + activo default', async () => {
-    await service.ensureSeededForAllTenants();
+    await service.ensureSeededForTenant(tenantQro._id);
     // inactive one
     const key = storeKey(tenantQro._id, CLAVE_SEED_COMERCIALES);
     store.get(key).activo = false;
@@ -496,7 +464,7 @@ describe('PlantillasService (Story 5.1 + 5.2)', () => {
   });
 
   it('findAll aplica skip/limit reales', async () => {
-    await service.ensureSeededForAllTenants();
+    await service.ensureSeededForTenant(tenantQro._id);
     await service.create({ nombre: 'Alpha custom', secciones: [seccionOk] });
     await service.create({ nombre: 'Zeta custom', secciones: [seccionOk] });
 
@@ -514,14 +482,14 @@ describe('PlantillasService (Story 5.1 + 5.2)', () => {
   });
 
   it('findAll filtra por nombre', async () => {
-    await service.ensureSeededForAllTenants();
+    await service.ensureSeededForTenant(tenantQro._id);
     const res = await service.findAll({ nombre: 'admin' });
     expect(res.total).toBe(1);
     expect((res.data[0] as any).nombre).toContain('Administrativos');
   });
 
   it('update y softDelete (remove) funcionan sobre seed sin locked', async () => {
-    await service.ensureSeededForAllTenants();
+    await service.ensureSeededForTenant(tenantQro._id);
     const key = storeKey(tenantQro._id, CLAVE_SEED_ADMINISTRATIVOS);
     const seeded = store.get(key);
 
@@ -536,7 +504,7 @@ describe('PlantillasService (Story 5.1 + 5.2)', () => {
   });
 
   it('findOne cross-tenant → NotFoundException', async () => {
-    await service.ensureSeededForAllTenants();
+    await service.ensureSeededForTenant(tenantQro._id);
     const key = storeKey(tenantQro._id, CLAVE_SEED_COMERCIALES);
     const seeded = store.get(key);
 
@@ -561,7 +529,7 @@ describe('PlantillasService (Story 5.1 + 5.2)', () => {
   });
 
   it('toggleActivo invierte activo sin locked', async () => {
-    await service.ensureSeededForAllTenants();
+    await service.ensureSeededForTenant(tenantQro._id);
     const key = storeKey(tenantQro._id, CLAVE_SEED_COMERCIALES);
     const seeded = store.get(key);
     expect(seeded.activo).not.toBe(false);

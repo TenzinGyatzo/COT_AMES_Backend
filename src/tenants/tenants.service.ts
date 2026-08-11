@@ -6,7 +6,6 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
-  OnModuleInit,
   forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -19,6 +18,7 @@ import { Roles } from '../auth/enums/roles.enum';
 import { OnboardTenantDto } from './dto/onboard-tenant.dto';
 import { assertStrictObjectIdOrNotFound } from '../common/strict-object-id';
 
+/** Claves históricas AMES (ops/migración). No se siembran en boot — solo onboard crea tenants. */
 export const INITIAL_TENANTS = [
   { clave: 'queretaro', nombre: 'Querétaro' },
   { clave: 'los-mochis', nombre: 'Los Mochis' },
@@ -50,7 +50,7 @@ export type TenantListItem = {
 };
 
 @Injectable()
-export class TenantsService implements OnModuleInit {
+export class TenantsService {
   private readonly logger = new Logger(TenantsService.name);
 
   constructor(
@@ -61,37 +61,6 @@ export class TenantsService implements OnModuleInit {
     @Inject(forwardRef(() => PlantillasService))
     private readonly plantillasService: PlantillasService,
   ) {}
-
-  async onModuleInit() {
-    await this.ensureSeeded();
-  }
-
-  async ensureSeeded(): Promise<Tenant[]> {
-    const results: Tenant[] = [];
-    for (const t of INITIAL_TENANTS) {
-      const doc = await this.tenantModel
-        .findOneAndUpdate(
-          { clave: t.clave },
-          {
-            // Story 4.3 / AD-14: no forzar activo en updates (suspend debe persistir).
-            $set: {
-              nombre: t.nombre,
-            },
-            $setOnInsert: {
-              clave: t.clave,
-              activo: true,
-            },
-          },
-          { upsert: true, new: true },
-        )
-        .exec();
-      results.push(doc);
-    }
-    this.logger.log(
-      `Tenants seed OK: ${results.map((r) => (r as any).clave).join(', ')}`,
-    );
-    return results;
-  }
 
   async findAllActive(): Promise<Tenant[]> {
     return this.tenantModel.find({ activo: true }).sort({ nombre: 1 }).exec();

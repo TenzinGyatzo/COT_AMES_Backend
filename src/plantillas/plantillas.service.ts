@@ -2,10 +2,6 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  OnModuleInit,
-  Logger,
-  Inject,
-  forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -14,7 +10,6 @@ import {
   PlantillaDocument,
   SeccionPlantillaV1,
 } from './schemas/plantilla.schema';
-import { TenantsService } from '../tenants/tenants.service';
 import { TenantContextService } from '../tenants/tenant-context.service';
 import {
   PLANTILLAS_SEED,
@@ -28,14 +23,10 @@ import { PaginatedPlantillasResponseDto } from './dto/paginated-plantillas-respo
 import { plainTextFromTipTapDoc } from './utils/tiptap-plain-text';
 
 @Injectable()
-export class PlantillasService implements OnModuleInit {
-  private readonly logger = new Logger(PlantillasService.name);
-
+export class PlantillasService {
   constructor(
     @InjectModel(Plantilla.name)
     private plantillaModel: Model<PlantillaDocument>,
-    @Inject(forwardRef(() => TenantsService))
-    private tenantsService: TenantsService,
     private tenantContext: TenantContextService,
   ) {}
 
@@ -133,14 +124,11 @@ export class PlantillasService implements OnModuleInit {
     return secciones as SeccionPlantillaV1[];
   }
 
-  async onModuleInit() {
-    await this.ensureSeededForAllTenants();
-  }
-
   /**
-   * Story 4.1 / 5.1 — seed idempotente para un tenant concreto.
+   * Story 4.1 — seed idempotente al onboard de un tenant.
    * Upsert solo `$setOnInsert` (no pisa ediciones). No usa ALS/tenantContext.
    * Retry/read-after E11000 (carrera concurrente en índice único).
+   * No corre en boot: tenants existentes no se re-siembran al arrancar.
    */
   async ensureSeededForTenant(
     tenantId: Types.ObjectId,
@@ -184,26 +172,6 @@ export class PlantillasService implements OnModuleInit {
   /** Compensación onboard (Story 4.1): borrar seeds del tenant parcial. */
   async deleteAllForTenant(tenantId: Types.ObjectId): Promise<void> {
     await this.plantillaModel.deleteMany({ tenantId }).exec();
-  }
-
-  /**
-   * Story 5.1 — seed idempotente boot (solo INITIAL_TENANTS vía ensureSeeded).
-   * Tenants onboarded deben llamar `ensureSeededForTenant` desde onboard.
-   */
-  async ensureSeededForAllTenants(): Promise<Plantilla[]> {
-    const tenants = await this.tenantsService.ensureSeeded();
-    const createdOrExisting: Plantilla[] = [];
-
-    for (const tenant of tenants) {
-      const tenantId = (tenant as any)._id as Types.ObjectId;
-      const docs = await this.ensureSeededForTenant(tenantId);
-      createdOrExisting.push(...docs);
-    }
-
-    this.logger.log(
-      `Plantillas seed OK: ${tenants.length} tenant(s) × ${PLANTILLAS_SEED.length} seed(s)`,
-    );
-    return createdOrExisting;
   }
 
   async findAll(
