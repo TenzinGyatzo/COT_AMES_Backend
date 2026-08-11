@@ -83,10 +83,10 @@ async function bootstrap() {
     configService.get<string>('SWAGGER_ENABLED') === 'true';
   if (swaggerEnabled) {
     const config = new DocumentBuilder()
-      .setTitle('Cotizador API')
-      .setDescription('API para el sistema de cotizaciones AMES')
+      .setTitle('Aestimare API')
+      .setDescription('API de Aestimare para gestión de cotizaciones B2B')
       .setVersion('1.0')
-      .addTag('cotizador')
+      .addTag('aestimare')
       .addBearerAuth()
       .build();
     const document = SwaggerModule.createDocument(app, config);
