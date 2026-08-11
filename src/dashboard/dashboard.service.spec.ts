@@ -137,6 +137,7 @@ describe('ServiciosService.countActive (Story 7.3)', () => {
     const { ServiciosService } = await import('../servicios/servicios.service');
     const service = new ServiciosService(
       { countDocuments } as any,
+      {} as any,
       { getTenantId: () => tenantId } as any,
       {} as any,
     );
